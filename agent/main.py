@@ -29,6 +29,8 @@ def context_cpmress(messages,client):
             对话内容：{history}"""}
         ]
     )
+    summary=resp.choices[0].messages.content
+    return system+[{"role":"assisant","content":f"对话摘要: {summary}"}]
 
 
 def Input(prompt="User: ")->str:
