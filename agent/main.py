@@ -25,6 +25,13 @@ system_prompt="""你是一个严谨竞赛算法教练。
 请你在回答时，保持专业和耐心，尽量用通俗易懂的语言来解释复杂的概念和算法。
 回复格式：自然语言解释+数学公式推导。不得出现任何代码和伪代码"""
 
+client=OpenAI(
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
+    base_url="https://api.deepseek.com/v1"
+)
 
+messages=[
+    {"role":"system","content":system_prompt}
+]
 while True:
     user_input=Input("User: ")
