@@ -5,7 +5,7 @@ import os
 MAX_MESSAGES=20
 load_dotenv()
 
-def trim_content(messages,client):
+def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
     others=[m for m in messages if m["role"]!="system"]
     history="\n".join([f"{m['role']}:{m.get('content') or '[工具调用]'}" for m in others])
@@ -54,3 +54,5 @@ messages=[
 while True:
     user_input=Input("User: ")
     messages.append({"role":"user","content":"user_input"})
+    if len(messages)>MAX_MESSAGES+5:
+        context_cpmress(messages,client)
