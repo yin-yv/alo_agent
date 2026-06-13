@@ -2,7 +2,25 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import os
 
+MAX_MESSAGES=20
 load_dotenv()
+
+def trim_content(messages,client):
+    system=[m for m in messages if m["role"]=="system"]
+    others=[m for m in messages if m["role"]!="system"]
+    history="\n".join([f"{m['role']}:{m.get('content') or '[工具调用]'}" for m in others])
+    resp=client.chat.completions.create(
+        model="deepseek-chat",
+        messages=[
+            {"role":"user","content":f"""请将以下对话内容进行压缩，保留关键信息。
+            要求：
+            1. 保留用户询问的关键问题和助手的核心回答
+            2. 保留算法推理的关键逻辑
+            3. 用"用户询问了...，助手回答了..."的格式
+            4. 只输出摘要，不要输出其他内容
+            对话内容：{history}"""}
+        ]
+    )
 
 def Input(prompt="User: ")->str:
     print(prompt+"(end结束输入,quit退出)")
@@ -35,3 +53,4 @@ messages=[
 ]
 while True:
     user_input=Input("User: ")
+    messages.append({"role":"user","content":"user_input"})
