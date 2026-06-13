@@ -5,6 +5,14 @@ import os
 MAX_MESSAGES=20
 load_dotenv()
 
+tools=[
+    {
+        "type":"function",
+        "function":{
+            "name":""
+        }
+    }
+]
 def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
     others=[m for m in messages if m["role"]!="system"]
