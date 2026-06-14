@@ -9,10 +9,65 @@ tools=[
     {
         "type":"function",
         "function":{
-            "name":""
+            "name":"get_problem",
+            "description":"根据user现有的知识库和要学习的算法，提供最适合的学习题目集",
+            "parameters":{
+                "type":"object",
+                "properties":{
+                    "rank":{
+                        "type":"string"
+                    },
+                    "prerequisites":{
+                        "type":"string",
+                        "description":"获取用户是否具备学习这个算法的条件，不具有则给出前置算法"
+                    },
+                    "leads_to":{
+                        "type":"string",
+                        "description":"用户学会了这个算法后，能够学进阶的算法"
+                    }
+                },
+                "requried":["rank","preerquisites","leads_to"]
+            }
+        },
+        "function":{
+            "name":"submit&get_result",
+            "description":"用户提交代码并拿到结果,如:AC,WA,TLM",
+            "parameters":{
+                "type":"tool",
+                "properties":{
+                    "submit":{
+                        "type":"string",
+                        "description":"提交用户代码"
+                    },
+                    "result":{
+                        "type":"string",
+                        "description":"获取用户的提交结果"
+                    },
+                },
+                "requried":["submit","result"]
+            }
+        },
+        "function":{
+            "name":"analysis_code",
+            "description":"根据submit&get_result的返回结果，详细分析错误的原因",
+            "parameters":{
+                "type":"tool",
+                "properties":{
+                    "location":{
+                        "type":"string",
+                        "description":"出错的位置"
+                    },
+                    "incorrect_form":{
+                        "type":"string",
+                        "description":"因为什么出错，是语法还是逻辑"
+                    }
+                },
+                "requried":["location","incorrect_form"]
+            }
         }
     }
 ]
+
 def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
     others=[m for m in messages if m["role"]!="system"]
@@ -29,8 +84,8 @@ def context_cpmress(messages,client):
             对话内容：{history}"""}
         ]
     )
-    summary=resp.choices[0].messages.content
-    return system+[{"role":"assisant","content":f"对话摘要: {summary}"}]
+    summary=resp.choices[0].message.content
+    return system+[{"role":"assitsant","content":f"对话摘要: {summary}"}]
 
 
 def Input(prompt="User: ")->str:
@@ -48,11 +103,21 @@ def Input(prompt="User: ")->str:
         input_text.append(line)
     return "\n".join(input_text)
 
-system_prompt="""你是一个严谨竞赛算法教练。
-当用户提交代码时，你会先分析代码的功能和逻辑，指出其中的错误和不足之处，并给出改进建议，建议的详细程度取决于用户在同一道题提交的次数。
-当用户提出问题时，你会根据问题的内容，提供清晰准确的解答，并给出相关的示例和参考资料。
-请你在回答时，保持专业和耐心，尽量用通俗易懂的语言来解释复杂的概念和算法。
-回复格式：自然语言解释+数学公式推导。不得出现任何代码和伪代码"""
+system_prompt="""当用户提交代码时：
+- 调用 submit&get_result 工具提交到 Codeforces 拿到一手评测结果
+- 第一次提交：只告知 AC/WA/TLE/MLE/RE/CE，不指出具体出错点
+- 第二次及以上：给出详细的错误位置和原因分析
+- 解释只能用自然语言和数学推导，不得出现任何代码或伪代码
+ 
+当用户提出问题时：
+- 提供清晰准确的解答
+- 用通俗语言解释复杂概念
+- 回复格式：自然语言解释 + 数学公式推导
+ 
+当用户需要题目时：
+- 调用 get_problem 工具获取合适题目
+- 根据用户已有知识储备推荐难度
+"""
 
 client=OpenAI(
     api_key=os.getenv("DEEPSEEK_API_KEY"),
@@ -64,6 +129,6 @@ messages=[
 ]
 while True:
     user_input=Input("User: ")
-    messages.append({"role":"user","content":"user_input"})
+    messages.append({"role":"user","content":user_input})
     if len(messages)>MAX_MESSAGES+5:
-        context_cpmress(messages,client)
+        messages=context_cpmress(messages,client)
