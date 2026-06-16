@@ -4,6 +4,8 @@ from typing import Optional, Dict, Any
 import os
 import requests
 import random
+import re
+import time
 import json
 
 MAX_MESSAGES=20
@@ -114,7 +116,7 @@ tools=[
     }
 ]
 
-ratting={
+rating={
     "easy":(800,1200),
     "medium":(1200,2000),
     "hard":(2001,3800)
@@ -143,22 +145,47 @@ ALG_TAG_MAP = {
     "前缀和":         "data structures",
 }
 
+_LANG_ID: Dict[str, str] = {
+    "python":  "7",   # Python 3
+    "pypy":    "41",  # PyPy 3
+    "cpp17":   "54",  # GNU G++17
+    "cpp20":   "73",  # GNU G++20
+    "java":    "36",  # Java 11
+    "c":       "43",  # GNU GCC C11
+}
+
+_VERDICT_MAP: Dict[str, str] = {
+    "OK":                        "AC",
+    "Accpect":                   "AC",
+    "WRONG_ANSWER":              "WA",
+    "TIME_LIMIT_EXCEEDED":       "TLE",
+    "MEMORY_LIMIT_EXCEEDED":     "MLE",
+    "RUNTIME_ERROR":             "RE",
+    "COMPILATION_ERROR":         "CE",
+    "IDLENESS_LIMIT_EXCEEDED":   "ILE",
+    "SKIPPED":                   "SK",
+    "CRASHED":                   "CRASH",
+    "REJECTED":                  "REJ",
+}
+
+_PENDING = {"TESTING", "IN_QUEUE"}
+
 def get_tag(alg:str)->str:
-    return ALG_TAG_MAP.get(alg.strip().lower,alg.strip().lower)
+    return ALG_TAG_MAP.get(alg.strip().lower(),alg.strip().lower())
 
 def _fetch_problem(tag:str,lo:int,hi:int,n:int)->list[dict]:
     try:
         res=requests.get(
             "https://codeforces.com/api/problemset.problems",
-            param={"tags":tag},
+            params={"tags":tag},
             timeout=15
-        ).josn()
+        ).json()
     except Exception as e:
         return [{"error":f"网络请求失败{e}"}]
     if res.get("status")!="OK":
         return [{"error":f"{res.get('content','未知')}"}]
     pool=[
-        p for p in res["result"]["problem"]
+        p for p in res["result"]["problems"]
         if lo<=p.get("rating",0)<=hi
     ]
     if not pool:
@@ -207,28 +234,182 @@ def get_problem(alg:str,rat:str,leads_to:list[str],prerequisites:list[str]) ->Di
           "warning": ...        # 可选：前置不足时的提示
         }
     """
-    if rat not in ratting:
+    if rat not in rating:
         return [{"error":f"rat参数无效，应为easy/medium/hard，收到：{rat!r}"}]
     tags=get_tag(alg)
-    lo,hi=ratting[rat]
+    lo,hi=rating[rat]
     problem=_fetch_problem(tags,lo,hi,n=3)
     result:dict[str,Any]={
         "alg":alg,
-        "tags":"tags",
+        "tags":tags,
         "difficulty":{"level":rat,"ratting":f"{lo}~{hi}"},
         "prerequisites":prerequisites,
         "leads_to":leads_to,
         "problems":problem
     }
     if prerequisites:
-        result["warnning"]=(f"学习{alg}前，需要掌握{','.json(prerequisites)}")
+        result["warning"]=(f"学习{alg}前，需要掌握{', '.json(prerequisites)}")
     return result
 
-      
+def _poll():
+    for _ in range(3):
+        yield 5
+    for _ in range(3):
+        yield 10
+    while True:
+        yield 20
+
+def get_cookie()->requests.session:
+    #"从.env获取cookie"
+    cookie_file=["JSESSIONID","39ce7","70a7c28f3de","cf_clearance","X-User"]
+    cookie={f:os.getenv(f,"") for f in cookie_file}
+    missing=[k for k,v in cookie.items() if not v]
+    if missing:
+        raise EnvironmentError(f"缺少关键字段:{', '.join(missing)}")
+    s=requests.Session()
+    s.headers.update(
+        {
+            "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://codeforces.com/"
+        }
+    )
+    s.proxies={
+        "http":os.getenv("HTTP_PROXY",""),
+        "https":os.getenv("HTTPS_PROXY","")
+    }
+    for k,v in cookie.items():
+        s.cookies.set(k,v,domain=".codeforces.com")
+    return s
+
+def get_crsf(session:requests.Session,url:str)->str:
+    resp=session.get(url,timeout=15)
+    resp.rasie_for_stauts()
+    m=re.search(r'<meta\s+name="X-Csrf-Token"\s+content="([^"]+)"',resp.text)
+    if not m:
+        raise ValueError("无法获取crsf，请检查cookie是否有效")
+    return m.group(1)
+
+def _submit(session:requests.Session,source_code:str,context_id:str,problem_index:str,lang:str)->None:
+    submit_url = f"https://codeforces.com/contest/{context_id}/submit"
+    crsf=get_crsf(session,submit_url)
+    lang_id=_LANG_ID.get(lang)
+    if lang_id is None:
+        raise ValueError(f"不支持当前语言，可选{list(_LANG_ID)}")
+    pal={
+        "crsf_token":crsf,
+        "programTypeId":lang_id,
+        "source_code":source_code,
+        "contextId":str(context_id),
+        "submitproblemIndex":problem_index,
+        "action":"submitSolutionFormSubmit",
+        "tabSize":"4",
+        "_tta":"594"
+    }
+    resp=session.post(
+        submit_url,
+        data=pal,
+        params={"crsf_token":crsf},
+        timeout=20,
+        allow_redirects=True
+    )
+    resp.raise_for_status()
+    if "submitSolutionFormSubmit" in resp.url or "error" in resp.text.lower():
+        err_m=re.search(r'error[^>]*>([^<]{5,200})', resp.text, re.I)
+        hint=err_m.group(1).strip() if err_m else "位置错误，请确认cookie未到期"
+        raise RuntimeError(f"CF提交失败：{hint}")
+
+def _least_submissionId(session:requests.Session,context_id:int,problem_id:str)->int:
+    handle=session.cookies.get("X-User", domain=".codeforces.com") or os.getenv("X-User","")
+    if not handle:
+        raise EnvironmentError("无法获取CF用户handle,请检查X-User cookie")
+    url="https://codeforces.com/api/contest.status"
+    resp=session.get(
+        url,
+        params={"contextId":context_id,"handle":handle,"from":1,"count":10},
+        timeout=15
+    )
+    resp.raise_for_status()
+    data=resp.json()
+    if data.get("status") !="OK":
+        raise RuntimeError(f"获取列表失败，{data.get('comment','未知')}")
+    target_Index=problem_id.upper()
+    for sub in data["result"]:
+        if sub.get("problem",{}).get("index","").upper==target_Index:
+            return sub["id"]
+    raise RuntimeError(
+        f"未找到 context {context_id} 题目 {problem_id} 的提交记录，"
+        "可能提交尚未入库，请稍后重试"
+    )
+def _poll_verdict(session:requests.Session,submission_id:int,context_id:str,timeout=120)->dict[str,Any]:
+    url="https://codeforces.com/api/contest.status"
+    deadline=timeout+time.time()
+    intervals=_poll()
+    while time.time()<deadline:
+        try:
+            resp=session.get(
+                url,
+                params={"contextId":context_id,"from":1,"count":50},
+                timeout=15
+            )
+            resp.raise_for_status()
+            data=resp.json()
+        except Exception as e:
+            raise RuntimeError(f"轮询结果时网络异常{e}")
+        if data.get("status") !="OK":
+            raise RuntimeError(f"API返回错误：{data.get('comment','未知')}")
+        for sub in data["result"]:
+            if sub["id"]!=submission_id:
+                continue
+            raw_verdict=sub.get("verdict","TESTING")
+            if raw_verdict in _PENDING:
+                print(f"  ⏳ 评测中（{raw_verdict}）… submission #{submission_id}")
+                break
+            verdict=_VERDICT_MAP.get(raw_verdict,raw_verdict)
+            test_case=sub.get("passedTestCount")
+            failed_case=(test_case+1) if verdict !="AC" and test_case is not None else None
+            return {
+                "verdict":verdict,
+                "context_id":context_id,
+                "submissionId":submission_id,
+                "test_case":failed_case
+            }
+        else:
+            print(f"  ⏳ 等待 submission #{submission_id} 出现在评测队列…")
+            sleep=next(intervals)
+            time.sleep(min(sleep,deadline-time.time()))
+        raise TimeoutError(
+            f"评测超时（>{timeout}s），submission #{submission_id} 尚未返回结果。\n"
+        "可能原因：网络波动 / CF 服务器繁忙 / cookie 已失效。\n"
+        "建议：检查网络后告知我重试，无需在 CF 上重复提交。"
+        )
+
+def submit_and_get_result(context_id:str,problem_index:str,lang:str,source_code:str)->str:
+    session=get_cookie()
+    #提交
+    print(f"  📤 正在提交 contest {context_id} / {problem_index.upper()} ({lang})…")
+    _submit(session,source_code,context_id,problem_index,lang)
+    #获取submission_id
+    time.sleep(2)
+    submission=_least_submissionId(session,context_id,problem_index)
+    print(f"  ✅ 提交成功，submission ID = {submission}（无需在 CF 上重复提交）")
+    #轮询结果
+    result=_poll_verdict(session,submission,context_id,timeout=120)
+    verdict_list=(
+        f"  🏁 评测完成：{result['verdict']}"
+        + (f"(在第{result['test_case']}个测试点出错)" if result['test_case'] else "")
+    )
+    print(verdict_list)
+    return result
 
 def call_tools(name,msg):
     if name=="get_problem":
         return get_problem(**msg)
+    if name=="submit_and_get_result":
+        return submit_and_get_result(**msg)
 
 def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
@@ -247,7 +428,7 @@ def context_cpmress(messages,client):
         ]
     )
     summary=resp.choices[0].message.content
-    return system+[{"role":"assitsant","content":f"对话摘要: {summary}"}]
+    return system+[{"role":"assistant","content":f"对话摘要: {summary}"}]
 
 
 def Input(prompt="User: ")->str:
