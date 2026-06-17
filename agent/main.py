@@ -43,7 +43,7 @@ tools=[
                         "description": "掌握本算法后可进阶的算法列表，如 ['tree dp', 'bitmask dp']",
                     }
                 },
-                "required": ["alg", "rat", "prerequisites", "leads_to"],   # 修复拼写
+                "required": ["alg", "rat", "prerequisites", "leads_to"]
             }
         }
     },
@@ -179,9 +179,14 @@ def get_tag(alg:str)->str:
 
 def _fetch_problem(tag:str,lo:int,hi:int,n:int)->list[dict]:
     try:
+        proxies={
+            "HTTP_PROXY":os.getenv("HTTP_PROXY"),
+            "HTTPS_PROXY":os.getenv("HTTPS_PROXY")
+        }
         res=requests.get(
             "https://codeforces.com/api/problemset.problems",
             params={"tags":tag},
+            proxies=proxies,
             timeout=15
         ).json()
     except Exception as e:
@@ -252,7 +257,7 @@ def get_problem(alg:str,rat:str,leads_to:list[str],prerequisites:list[str]) ->Di
         "problems":problem
     }
     if prerequisites:
-        result["warning"]=(f"学习{alg}前，需要掌握{', '.json(prerequisites)}")
+        result["warning"]=(f"学习{alg}前，需要掌握{', '.join(prerequisites)}")
     return result
 
 def _poll():
@@ -263,7 +268,7 @@ def _poll():
     while True:
         yield 20
 
-def get_cookie()->requests.session:
+def get_cookie()->requests.Session:
     #"从.env获取cookie"
     cookie_file=["JSESSIONID","39ce7","70a7c28f3de","cf_clearance","X-User"]
     cookie={f:os.getenv(f,"") for f in cookie_file}
@@ -291,49 +296,78 @@ def get_cookie()->requests.session:
 
 def get_crsf(session:requests.Session,url:str)->str:
     resp=session.get(url,timeout=15)
-    resp.rasie_for_stauts()
+    resp.raise_for_status()
     m=re.search(r'<meta\s+name="X-Csrf-Token"\s+content="([^"]+)"',resp.text)
     if not m:
         raise ValueError("无法获取crsf，请检查cookie是否有效")
     return m.group(1)
 
-def _submit(session:requests.Session,source_code:str,context_id:str,problem_index:str,lang:str)->None:
-    submit_url = f"https://codeforces.com/contest/{context_id}/submit"
-    crsf=get_crsf(session,submit_url)
+def _is_contest_running(session, contest_id) -> bool:
+    try:
+        resp = session.get(
+            "https://codeforces.com/api/contest.list",
+            params={"gym": False},
+            timeout=10
+        )
+        data = resp.json()
+        if data.get("status") != "OK":
+            return False
+        for c in data["result"]:
+            if c["id"] == int(contest_id):
+                return c.get("phase") == "CODING"
+        return False
+    except Exception:
+        return False
+
+def _submit(session:requests.Session,source_code:str,contest_id:int,problem_index:str,lang:str)->None:
+    if contest_id >= 100000:
+        submit_url = f"https://codeforces.com/gym/{contest_id}/submit"
+        index_field = "submittedProblemIndex"
+    else:
+        if _is_contest_running(session, contest_id):
+            submit_url = f"https://codeforces.com/contest/{contest_id}/submit"
+            index_field = "submitProblemIndex"
+        else:
+            submit_url = "https://codeforces.com/problemset/submit"
+            index_field = "submittedProblemIndex"
+    csrf=get_crsf(session,submit_url)
     lang_id=_LANG_ID.get(lang)
     if lang_id is None:
         raise ValueError(f"不支持当前语言，可选{list(_LANG_ID)}")
     pal={
-        "crsf_token":crsf,
+        "csrf_token":csrf,
         "programTypeId":lang_id,
-        "source_code":source_code,
-        "contextId":str(context_id),
-        "submitproblemIndex":problem_index,
+        "source":source_code,
+        "contestId":str(contest_id),
         "action":"submitSolutionFormSubmit",
         "tabSize":"4",
-        "_tta":"594"
+        index_field:problem_index.upper(),
+        "_tta": str(int(time.time() * 1000) % 1000)
     }
     resp=session.post(
         submit_url,
         data=pal,
-        params={"crsf_token":crsf},
+        params={"csrf_token":csrf},
         timeout=20,
         allow_redirects=True
     )
     resp.raise_for_status()
-    if "submitSolutionFormSubmit" in resp.url or "error" in resp.text.lower():
+    if "submitSolutionFormSubmit" in resp.url or resp.status_code !=200:
         err_m=re.search(r'error[^>]*>([^<]{5,200})', resp.text, re.I)
         hint=err_m.group(1).strip() if err_m else "位置错误，请确认cookie未到期"
         raise RuntimeError(f"CF提交失败：{hint}")
+    if resp.url.endswith(f"/contest/{contest_id}/submit"):
+        raise RuntimeError("CF提交失败：页面未正常跳转，cookie可能已失效")
+    print(f"  [DEBUG] 提交后跳转到: {resp.url}, 状态码: {resp.status_code}")
 
-def _least_submissionId(session:requests.Session,context_id:int,problem_id:str)->int:
-    handle=session.cookies.get("X-User", domain=".codeforces.com") or os.getenv("X-User","")
+def _least_submissionId(session:requests.Session,contest_id:int,problem_id:str)->int:
+    handle = os.getenv("CF_HANDLE", "")
     if not handle:
-        raise EnvironmentError("无法获取CF用户handle,请检查X-User cookie")
+        raise EnvironmentError("无法获取CF用户handle，请在.env中设置CF_HANDLE=你的用户名")
     url="https://codeforces.com/api/contest.status"
     resp=session.get(
         url,
-        params={"contextId":context_id,"handle":handle,"from":1,"count":10},
+        params={"contestId":contest_id,"handle":handle,"from":1,"count":50},
         timeout=15
     )
     resp.raise_for_status()
@@ -342,22 +376,25 @@ def _least_submissionId(session:requests.Session,context_id:int,problem_id:str)-
         raise RuntimeError(f"获取列表失败，{data.get('comment','未知')}")
     target_Index=problem_id.upper()
     for sub in data["result"]:
-        if sub.get("problem",{}).get("index","").upper==target_Index:
+        if sub.get("problem",{}).get("index","").upper()==target_Index:
             return sub["id"]
     raise RuntimeError(
-        f"未找到 context {context_id} 题目 {problem_id} 的提交记录，"
+        f"未找到 context {contest_id} 题目 {problem_id} 的提交记录，"
         "可能提交尚未入库，请稍后重试"
     )
 #轮询结果
-def _poll_verdict(session:requests.Session,submission_id:int,context_id:str,timeout=120)->dict[str,Any]:
+def _poll_verdict(session:requests.Session,submission_id:int,contest_id:str,timeout=120)->dict[str,Any]:
     url="https://codeforces.com/api/contest.status"
     deadline=timeout+time.time()
     intervals=_poll()
+    handle = os.getenv("CF_HANDLE", "")
+    if not handle:
+        raise EnvironmentError("无法获取CF用户handle，请在.env中设置CF_HANDLE=你的用户名")
     while time.time()<deadline:
         try:
             resp=session.get(
                 url,
-                params={"contextId":context_id,"from":1,"count":50},
+                params={"contestId":contest_id,"handle":handle,"from":1,"count":50},
                 timeout=15
             )
             resp.raise_for_status()
@@ -376,61 +413,80 @@ def _poll_verdict(session:requests.Session,submission_id:int,context_id:str,time
             verdict=_VERDICT_MAP.get(raw_verdict,raw_verdict)
             test_case=sub.get("passedTestCount")
             failed_case=(test_case+1) if verdict !="AC" and test_case is not None else None
-            sub_attempt={}
-            sub_attempt[verdict]+=1
             return {
                 "verdict":verdict,
-                "context_id":context_id,
+                "contest_id":contest_id,
                 "submissionId":submission_id,
-                "test_case":failed_case,
-                "sub_attempt":sub_attempt
+                "test_case":failed_case
             }
         else:
             print(f"  ⏳ 等待 submission #{submission_id} 出现在评测队列…")
             sleep=next(intervals)
             time.sleep(min(sleep,deadline-time.time()))
-        raise TimeoutError(
-            f"评测超时（>{timeout}s），submission #{submission_id} 尚未返回结果。\n"
+    raise TimeoutError(
+        f"评测超时（>{timeout}s），submission #{submission_id} 尚未返回结果。\n"
         "可能原因：网络波动 / CF 服务器繁忙 / cookie 已失效。\n"
         "建议：检查网络后告知我重试，无需在 CF 上重复提交。"
-        )
+    )
 
-def submit_and_get_result(context_id:str,problem_index:str,lang:str,source_code:str)->str:
+def submit_and_get_result(contest_id:str,problem_index:str,lang:str,source_code:str)->str:
     session=get_cookie()
     #提交
-    print(f"  📤 正在提交 contest {context_id} / {problem_index.upper()} ({lang})…")
-    _submit(session,source_code,context_id,problem_index,lang)
+    print(f"  📤 正在提交 contest {contest_id} / {problem_index.upper()} ({lang})…")
+    _submit(session,source_code,contest_id,problem_index,lang)
     #获取submission_id
-    time.sleep(2)
-    submission=_least_submissionId(session,context_id,problem_index)
-    print(f"  ✅ 提交成功，submission ID = {submission}（无需在 CF 上重复提交）")
+    submission=None
+    for _ in range(6):
+        time.sleep(5)
+        try:
+            submission = _least_submissionId(session, contest_id, problem_index)
+            print(f"  ✅ 提交成功，submission ID = {submission}（无需在 CF 上重复提交）")
+            break
+        except RuntimeError:
+            print(f"  ⏳ 等待提交入库… ({_+1}/6)")
+    if submission==None:
+        raise RuntimeError("提交入库超时，请稍后手动查询结果")
     #轮询结果
-    result=_poll_verdict(session,submission,context_id,timeout=120)
+    result=_poll_verdict(session,submission,contest_id,timeout=120)
     verdict_list=(
-        f"  🏁 评测完成：{result['verdict']},尝试路径：{result['sub_attempt']}"
+        f"  🏁 评测完成：{result['verdict']}"
         + (f"(在第{result['test_case']}个测试点出错)" if result['test_case'] else "")
     )
     print(verdict_list)
     return result
 
-def analsys_code(verdict:str,attempt_count:dict,source_code:str,tag:str)->str:
+def analysis_code(verdict:str,attempt_count:int,source_code:str,tags:str,test_case:int=None)->str:
     ver=_VERDICT_MAP.get(verdict,verdict)
-    tags=get_tag.get(tag)
+    tag=get_tag(tags)
     if ver=="AC":
-        print("厉害，通过啦！")
+        return "厉害，通过啦！"
     else:
+        test_case_debug=f"出错测试点：第{test_case}个\n" if test_case else ""
         resp=client.chat.completions.create(
-            model="deepseek-V4-pro",
-            messages=[{
-                "role":"system","content":f"""
-                根据用户提交的源码{source_code}在同一个题的相同错误的提交错误{attempt_count}
-                考点是{tags}
-                - 第一次提交：只告知 AC/WA/TLE/MLE/RE/CE，不指出具体出错点
-                - 第二次及以上：给出详细的错误位置和原因分析,错误发生变化则施加鼓励
-                - 解释只能用自然语言和数学推导，不得出现任何代码或伪代码"""
-            }]
+            model="deepseek-chat",
+            messages=[ 
+                {
+                    "role":"system","content":(
+                    "你是一位算法竞赛教练。"
+                    "只能用自然语言和数学推导分析错误，严禁出现任何代码或伪代码。"
+                    )
+                },
+                {
+                    "role":"user","content":(
+                        f"题目考点：{tag}\n"
+                        f"评测结果：{ver}\n"
+                        f"{test_case_debug}\n"
+                        f"本题同类错误提交次数：{attempt_count}\n"
+                        f"用户源码：\n{source_code}\n"
+                        f"要求：\n"
+                        f"- 第一次提交（attempt_count==1）：只告知错误类型，不指出具体出错点\n"
+                        f"- 第二次及以上：给出详细的错误位置和原因分析\n"
+                        f"- 若与上次错误类型不同，先给予鼓励再分析新错误"
+                    )
+                }
+            ]
         )
-        msg=resp.choices[0].message
+        msg=resp.choices[0].message.content
         return msg
 
 def call_tools(name,msg):
@@ -438,22 +494,22 @@ def call_tools(name,msg):
         return get_problem(**msg)
     if name=="submit_and_get_result":
         return submit_and_get_result(**msg)
-    if name=="analsys_code":
-        return analsys_code(**msg)
+    if name=="analysis_code":
+        return analysis_code(**msg)
 
 def run_agent(message,client):
     while True:
         resp=client.chat.completions.create(
             model="deepseek-chat",
-            message=message,
+            messages=message,
             tools=tools,
             tool_choice="auto"
         )
-        msg=resp.choice[0].message
-        if resp.choice[0].finsh_reason=="stop":
+        msg=resp.choices[0].message
+        if resp.choices[0].finish_reason=="stop":
             print(f"Assistant: {msg.content}")
             break
-        elif resp.choice[0].finsh_reason=="tool_calls":
+        elif resp.choices[0].finish_reason=="tool_calls":
             msg_dict={
                 "role":msg.role,
                 "content":msg.content,
@@ -463,7 +519,7 @@ def run_agent(message,client):
                         "type":tc.type,
                         "function":{
                             "name":tc.function.name,
-                            "arguments":msg.function.arguments
+                            "arguments":tc.function.arguments
                         }
                     }
                     for tc in msg.tool_calls
@@ -472,7 +528,7 @@ def run_agent(message,client):
             message.append(msg_dict)
             for tool_call in msg.tool_calls:
                 tool_name=tool_call.function.name
-                tool_content=json.loads(tool_call.function.argment)
+                tool_content=json.loads(tool_call.function.arguments)
                 result=call_tools(tool_name,tool_content)
                 message.append(
                     {
@@ -541,8 +597,11 @@ client=OpenAI(
 messages=[
     {"role":"system","content":system_prompt}
 ]
+
 while True:
     user_input=Input("User: ")
+    if user_input=="quit":
+        break
     messages.append({"role":"user","content":user_input})
     run_agent(messages,client)
     if len(messages)>MAX_MESSAGES+5:
