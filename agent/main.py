@@ -103,7 +103,7 @@ tools=[
                     },
                     "attempt_count": {
                         "type": "integer",
-                        "description": "用户对本题的提交次数，决定反馈详细程度",
+                        "description": "用户对本题的提交次数和错误类型，决定反馈详细程度",
                     },
                     "source_code": {
                         "type": "string",
@@ -344,6 +344,7 @@ def _least_submissionId(session:requests.Session,context_id:int,problem_id:str)-
         f"未找到 context {context_id} 题目 {problem_id} 的提交记录，"
         "可能提交尚未入库，请稍后重试"
     )
+#轮询结果
 def _poll_verdict(session:requests.Session,submission_id:int,context_id:str,timeout=120)->dict[str,Any]:
     url="https://codeforces.com/api/contest.status"
     deadline=timeout+time.time()
@@ -371,11 +372,14 @@ def _poll_verdict(session:requests.Session,submission_id:int,context_id:str,time
             verdict=_VERDICT_MAP.get(raw_verdict,raw_verdict)
             test_case=sub.get("passedTestCount")
             failed_case=(test_case+1) if verdict !="AC" and test_case is not None else None
+            sub_attempt={}
+            sub_attempt[verdict]+=1
             return {
                 "verdict":verdict,
                 "context_id":context_id,
                 "submissionId":submission_id,
-                "test_case":failed_case
+                "test_case":failed_case,
+                "sub_attempt":sub_attempt
             }
         else:
             print(f"  ⏳ 等待 submission #{submission_id} 出现在评测队列…")
@@ -399,18 +403,80 @@ def submit_and_get_result(context_id:str,problem_index:str,lang:str,source_code:
     #轮询结果
     result=_poll_verdict(session,submission,context_id,timeout=120)
     verdict_list=(
-        f"  🏁 评测完成：{result['verdict']}"
+        f"  🏁 评测完成：{result['verdict']},尝试路径：{result['sub_attempt']}"
         + (f"(在第{result['test_case']}个测试点出错)" if result['test_case'] else "")
     )
     print(verdict_list)
     return result
+
+def analsys_code(verdict:str,attempt_count:dict,source_code:str)->str:
+    ver=_VERDICT_MAP.get(verdict,verdict)
+    if ver=="AC":
+        print("厉害，通过啦！")
+    else:
+        resp=client.chat.completions.create(
+            model="deepseek-V4-pro",
+            messages=[{
+                "role":"system","content":f"""
+                根据用户在同一个题的相同错误的提交错误{attempt_count}
+                - 第一次提交：只告知 AC/WA/TLE/MLE/RE/CE，不指出具体出错点
+                - 第二次及以上：给出详细的错误位置和原因分析,错误发生变化则施加鼓励
+                - 解释只能用自然语言和数学推导，不得出现任何代码或伪代码"""
+            }]
+        )
+        msg=resp.choices[0].message
+        return msg
 
 def call_tools(name,msg):
     if name=="get_problem":
         return get_problem(**msg)
     if name=="submit_and_get_result":
         return submit_and_get_result(**msg)
+    if name=="analsys_code":
+        return analsys_code(**msg)
 
+def run_agent(message,client):
+    while True:
+        resp=client.chat.completions.create(
+            model="deepseek-chat",
+            message=message,
+            tools=tools,
+            tool_choice="auto"
+        )
+        msg=resp.choice[0].message
+        if resp.choice[0].finsh_reason=="stop":
+            print(f"Assistant: {msg.content}")
+            break
+        elif resp.choice[0].finsh_reason=="tool_calls":
+            msg_dict={
+                "role":msg.role,
+                "content":msg.content,
+                "tool_calls":[
+                    {
+                        "id":tc.id,
+                        "type":tc.type,
+                        "function":{
+                            "name":tc.function.name,
+                            "arguments":msg.function.arguments
+                        }
+                    }
+                    for tc in msg.tool_calls
+                ]
+            }
+            message.append(msg_dict)
+            for tool_call in msg.tool_calls:
+                tool_name=tool_call.function.name
+                tool_content=json.loads(tool_call.function.argment)
+                result=call_tools(tool_name,tool_content)
+                message.append(
+                    {
+                        "role":"tool",
+                        "name":tool_name,
+                        "tool_call_id":tool_call.id,
+                        "content":json.dumps(result)
+                    }
+                )
+            
 def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
     others=[m for m in messages if m["role"]!="system"]
@@ -429,7 +495,6 @@ def context_cpmress(messages,client):
     )
     summary=resp.choices[0].message.content
     return system+[{"role":"assistant","content":f"对话摘要: {summary}"}]
-
 
 def Input(prompt="User: ")->str:
     print(prompt+"(end结束输入,quit退出)")
@@ -473,5 +538,6 @@ messages=[
 while True:
     user_input=Input("User: ")
     messages.append({"role":"user","content":user_input})
+    run_agent(messages,client)
     if len(messages)>MAX_MESSAGES+5:
         messages=context_cpmress(messages,client)
