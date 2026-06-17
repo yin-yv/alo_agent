@@ -107,10 +107,14 @@ tools=[
                     },
                     "source_code": {
                         "type": "string",
-                        "description": "用户的源代码，用于分析错误位置",
+                        "description": "用户的源代码，用于分析错误位置"
+                    },
+                    "tags":{
+                        "type":"string",
+                        "description":"当前题目的标签"
                     }
                 },
-                "required": ["verdict", "attempt_count", "source_code"],
+                "required": ["verdict", "attempt_count", "source_code","tags"],
             }
         }
     }
@@ -409,8 +413,9 @@ def submit_and_get_result(context_id:str,problem_index:str,lang:str,source_code:
     print(verdict_list)
     return result
 
-def analsys_code(verdict:str,attempt_count:dict,source_code:str)->str:
+def analsys_code(verdict:str,attempt_count:dict,source_code:str,tag:str)->str:
     ver=_VERDICT_MAP.get(verdict,verdict)
+    tags=get_tag.get(tag)
     if ver=="AC":
         print("厉害，通过啦！")
     else:
@@ -418,7 +423,8 @@ def analsys_code(verdict:str,attempt_count:dict,source_code:str)->str:
             model="deepseek-V4-pro",
             messages=[{
                 "role":"system","content":f"""
-                根据用户在同一个题的相同错误的提交错误{attempt_count}
+                根据用户提交的源码{source_code}在同一个题的相同错误的提交错误{attempt_count}
+                考点是{tags}
                 - 第一次提交：只告知 AC/WA/TLE/MLE/RE/CE，不指出具体出错点
                 - 第二次及以上：给出详细的错误位置和原因分析,错误发生变化则施加鼓励
                 - 解释只能用自然语言和数学推导，不得出现任何代码或伪代码"""
