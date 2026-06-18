@@ -347,6 +347,18 @@ def submit_and_get_result(contest_id:str,problem_index:str,lang:str,source_code:
     print(verdict_list)
     return result
 
+ana_agent=None
+def _get_analysis_agent():
+    global ana_agent
+    if ana_agent==None:
+        ana_agent=create_agent(
+            model="deepseek-v4-pro",
+            system_prompt=SystemMessage(
+                """你是一位算法竞赛教练。
+                只能用自然语言和数学推导分析错误，严禁出现任何代码或伪代码。"""
+            )
+        )
+
 def analysis_code(verdict:str,attempt_count:int,source_code:str,tags:str,test_case:int=None)->str:
     ver=_VERDICT_MAP.get(verdict,verdict)
     tag=get_tag(tags)
@@ -354,26 +366,23 @@ def analysis_code(verdict:str,attempt_count:int,source_code:str,tags:str,test_ca
         return "厉害，通过啦！"
     else:
         if attempt_count>3:
-            messages="""
-                        同一个题错误超过三次，中止用户提交代码，认为用户前置知识不牢，巩固前置知识。"""
-            
+                return """同一个题错误超过三次，中止用户提交代码，认为用户前置知识不牢，巩固前置知识。"""
+        elif attempt_count==1:
+            hint = "只告知错误类型，不指出具体出错点"
+        elif attempt_count==2:
+            hint="给出错误位置和原因"
         else:
-            test_case_debug=f"出错测试点：第{test_case}个\n" if test_case else ""
-            messages="""你是一位算法竞赛教练。
-                        只能用自然语言和数学推导分析错误，严禁出现任何代码或伪代码。
-                        """
-            hmessage=f"""题目考点：{tag}\n
-                        评测结果：{ver}\n
-                        {test_case_debug}\n
-                        本题同类错误提交次数：{attempt_count}\n
-                        用户源码：\n{source_code}\n
-                        要求：\n
-                        - 第一次提交（attempt_count==1）：只告知错误类型，不指出具体出错点\n
-                        - 第二次及以上：给出详细的错误位置和原因分析\n
-                        - 若与上次错误类型不同，先给予鼓励再分析新错误"""
-            agent=create_agent(
-                model="deepseek-v4-pro",
-                system_prompt=SystemMessage(messages)
-            )
-            resp=agent.invoke({"messages":[HumanMessage(hmessage)]})
-            return resp.content
+            hint="给出详细错误位置、原因，并说明正确的思路方向（禁止代码）"
+        paras=[
+            f"题目考点：{tag}",
+            f"错误类型：{ver}",
+            f"反馈要求：{hint}",
+            f"提交次数：{attempt_count}"
+        ]
+        if test_case is not None:
+            paras.append(f"出错测试点：第{test_case}个")
+        paras.append(f"用户源码：{source_code}")
+        agent=_get_analysis_agent()
+        hmessage="\n".join(paras)
+        resp=agent.invoke({"messages":[HumanMessage(hmessage)]})
+        return resp["output"]
