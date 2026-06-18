@@ -323,7 +323,7 @@ def _poll_verdict(session:requests.Session,submission_id:int,contest_id:str,time
     )
 
 def submit_and_get_result(contest_id:str,problem_index:str,lang:str,source_code:str)->str:
-    if not can_submit(contest_id, problem_index):
+    if not can_submit(contest_id, problem_index)["allowed"]:
         return {"error": f"该题已达 {MAX_ATTEMPT} 次提交上限，前置算法知识不牢，回退至前置算法"}
     session=get_cookie()
     #提交

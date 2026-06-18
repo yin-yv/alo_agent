@@ -4,7 +4,7 @@ from tool import get_problem,submit_and_get_result,analysis_code
 import os
 import json
 from knowledge import (
-    init_vault, updata_learning_path
+    init_vault, updata_learning_path,finish_onboarding
 )
 init_vault()
 
@@ -127,15 +127,56 @@ tools=[
                 "type":"object",
                 "properties":{
                     "current_alg":{
-                        "type":"str",
+                        "type":"string",
                         "description":"当前学习的算法"
                     },
                     "next_alg":{
-                        "type":"str",
+                        "type":"array",
                         "description":"下一个要学习算法的tag"
                     }
                 },
                 "required":["current_alg","next_alg"]
+            }
+        }
+    },
+    {
+        "type":"function",
+        "function":{
+            "name":"finish_onboarding",
+            "description":(
+                "摸底对话全部结束后调用一次，将用户算法掌握情况原子性写入知识库，"
+                "并设定推荐的学习起点和后续路径。"
+                "必须且只能在所有算法均已判定完毕后调用。"
+            ),
+            "parameters":{
+                "type":"object",
+                "properties":{
+                    "mastered":{
+                        "type":"array",
+                        "items":{"type":"string"},
+                        "description":"用户已经深度掌握的算法的tag列表,easy/medium/hard全部AC"
+                    },
+                    "learn":{
+                        "type":"array",
+                        "items":{"type":"string"},
+                        "description":"了解基础但不熟悉的算法tag列表，easy全部AC"
+                    },
+                    "not_started":{
+                        "type":"array",
+                        "items":{"type","string"},
+                        "description":"完全未掌握或跳过的算法tag列表，easy未全部AC或者跳过"
+                    },
+                    "current_alg":{
+                        "type":"string",
+                        "description":"摸底后推荐学习的算法tag"
+                    },
+                    "next_alg":{
+                        "type":"array",
+                        "items":{"type":"string"},
+                        "description":"后续2~4个进阶算法学习路线，按照与掌握的关联降序排列"
+                    }
+                },
+                "required":["mastered","learn","not_started","current_alg","next_alg"]
             }
         }
     }
@@ -150,6 +191,8 @@ def call_tools(name,msg):
         return analysis_code(**msg)
     elif name=="updata_learning_path":
         return updata_learning_path(**msg)
+    elif name=="finish_onboarding":
+        return finish_onboarding(**msg)
     else:
         return f"未知工具{name}"
 
