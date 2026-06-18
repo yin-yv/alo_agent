@@ -1,15 +1,12 @@
 from openai import OpenAI
 from dotenv import load_dotenv
-from typing import Optional, Dict, Any
-from langchain.agents import create_agent
-from langchain.messages import SystemMessage,HumanMessage,AIMessage
 from tool import get_problem,submit_and_get_result,analysis_code
 import os
-import requests
-import random
-import re
-import time
 import json
+from knowledge import (
+    init_vault, updata_learning_path
+)
+init_vault()
 
 MAX_MESSAGES=20
 load_dotenv()
@@ -120,16 +117,41 @@ tools=[
                 "required": ["verdict", "attempt_count", "source_code","tags"],
             }
         }
+    },
+    {
+        "type":"function",
+        "function":{
+            "name":"updata_learning_path",
+            "description":"实时更新用户的提交记录和路径",
+            "parameters":{
+                "type":"object",
+                "properties":{
+                    "current_alg":{
+                        "type":"str",
+                        "description":"当前学习的算法"
+                    },
+                    "next_alg":{
+                        "type":"str",
+                        "description":"下一个要学习算法的tag"
+                    }
+                },
+                "required":["current_alg","next_alg"]
+            }
+        }
     }
 ]
 
 def call_tools(name,msg):
     if name=="get_problem":
         return get_problem(**msg)
-    if name=="submit_and_get_result":
+    elif name=="submit_and_get_result":
         return submit_and_get_result(**msg)
-    if name=="analysis_code":
+    elif name=="analysis_code":
         return analysis_code(**msg)
+    elif name=="updata_learning_path":
+        return updata_learning_path(**msg)
+    else:
+        return f"未知工具{name}"
 
 def run_agent(message,client):
     while True:
@@ -142,11 +164,12 @@ def run_agent(message,client):
         msg=resp.choices[0].message
         if resp.choices[0].finish_reason=="stop":
             print(f"Assistant: {msg.content}")
+            message.append({"role":"assistant","content":msg.content})
             break
         elif resp.choices[0].finish_reason=="tool_calls":
             msg_dict={
                 "role":msg.role,
-                "content":msg.content,
+                "content":msg.content or "",
                 "tool_calls":[
                     {
                         "id":tc.id,
@@ -169,9 +192,12 @@ def run_agent(message,client):
                         "role":"tool",
                         "name":tool_name,
                         "tool_call_id":tool_call.id,
-                        "content":json.dumps(result)
+                        "content":json.dumps(result,ensure_ascii=False)
                     }
                 )
+        else:
+            print(f"[警告] 未知的 finish_reason: {resp.choices[0].finish_reason}")
+            break
             
 def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
@@ -207,7 +233,7 @@ def Input(prompt="User: ")->str:
         input_text.append(line)
     return "\n".join(input_text)
 
-system_prompt="""
+system_prompt=r"""
 # 角色定义
 
 你是「CF 陪练官」——一位专注于竞技程序设计的 AI 教练，深耕 Codeforces 平台多年。

@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from typing import Optional, Dict, Any
 from langchain.agents import create_agent
 from langchain.messages import SystemMessage,HumanMessage,AIMessage
+from knowledge import (can_submit,MAX_ATTEMPT)
 import os
 import requests
 import random
@@ -322,6 +323,8 @@ def _poll_verdict(session:requests.Session,submission_id:int,contest_id:str,time
     )
 
 def submit_and_get_result(contest_id:str,problem_index:str,lang:str,source_code:str)->str:
+    if not can_submit(contest_id, problem_index):
+        return {"error": f"该题已达 {MAX_ATTEMPT} 次提交上限，前置算法知识不牢，回退至前置算法"}
     session=get_cookie()
     #提交
     print(f"  📤 正在提交 contest {contest_id} / {problem_index.upper()} ({lang})…")
@@ -358,6 +361,7 @@ def _get_analysis_agent():
                 只能用自然语言和数学推导分析错误，严禁出现任何代码或伪代码。"""
             )
         )
+    return ana_agent
 
 def analysis_code(verdict:str,attempt_count:int,source_code:str,tags:str,test_case:int=None)->str:
     ver=_VERDICT_MAP.get(verdict,verdict)
