@@ -18,6 +18,7 @@ import re
 from datetime import date
 from pathlib import Path
 from typing import Optional
+from langchain.tools import tool
 
 VAULT=Path(__file__).parent/"vault"
 ALG=VAULT/"algorithms"
@@ -490,6 +491,7 @@ def check_onboarding()->str|None:
  
 现在开始摸底，用中文与用户交流。先用一句话介绍摸底目的，然后从第一个算法出题。"""
 
+@tool(description="完成初始化引导流程")
 def finish_onboarding(mastered:list[str],learn:list[str],not_started:list[str],current_alg:str,next_alg:list[str]):
     _ensure_dirs()
     for tag in mastered:

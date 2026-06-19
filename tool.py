@@ -2,6 +2,7 @@ from typing import Dict, Any
 from langchain.agents import create_agent
 from langchain.messages import HumanMessage
 from knowledge import (can_submit,MAX_ATTEMPT)
+from langchain.tools import tool
 import os
 import requests
 import random
@@ -104,6 +105,7 @@ def _fetch_problem(tag:str,lo:int,hi:int,n:int)->list[dict]:
         for p in pro
     ]
 
+@tool
 def get_problem(alg:str,rat:str,leads_to:list[str],prerequisites:list[str]) ->Dict[str,Any]:
     """
     根据算法名和难度档位，返回结构化的题目集 + 学习路径。
@@ -351,6 +353,7 @@ async def _submit_and_get_result(contest_id:str,problem_index:str,lang:str,sourc
     print(verdict_list)
     return result
 
+@tool(name_or_callable="submit_and_get_result",description="调用方法_submit_and_get_result获取题目和轮询结果")
 def submit_and_get_result(contest_id:str,problem_index:str,lang:str,source_code:str)->dict:
     return asyncio.run(_submit_and_get_result(contest_id,problem_index,lang,source_code))
 ana_agent=None
@@ -365,6 +368,7 @@ def _get_analysis_agent():
         )
     return ana_agent
 
+@tool(name_or_callable="analsis_code",description="根据submit_and_get_result得到的结果，分析代码")
 def analysis_code(verdict:str,attempt_count:int,source_code:str,tags:str,test_case:int=None)->str:
     ver=_VERDICT_MAP.get(verdict,verdict)
     tag=get_tag(tags)

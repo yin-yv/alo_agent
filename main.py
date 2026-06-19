@@ -1,11 +1,14 @@
 from openai import OpenAI
 from dotenv import load_dotenv
 from tool import get_problem,submit_and_get_result,analysis_code
-import os
-import json
 from knowledge import (
     init_vault, updata_learning_path,finish_onboarding,build_prompt,check_onboarding
 )
+from langchain.chat_models import init_chat_model
+from langgraph.graph import StateGraph,END,MessagesState,START
+import os
+import json
+
 init_vault()
 
 MAX_MESSAGES=20
@@ -182,66 +185,45 @@ tools=[
     }
 ]
 
-def call_tools(name,msg):
-    if name=="get_problem":
-        return get_problem(**msg)
-    elif name=="submit_and_get_result":
-        return submit_and_get_result(**msg)
-    elif name=="analysis_code":
-        return analysis_code(**msg)
-    elif name=="updata_learning_path":
-        return updata_learning_path(**msg)
-    elif name=="finish_onboarding":
-        return finish_onboarding(**msg)
-    else:
-        return f"未知工具{name}"
+model=init_chat_model(model="deepseek-chat")
+tools=[finish_onboarding,analysis_code,submit_and_get_result,get_problem]
+model_with_tools=model.bind_tools(tools)
 
-def run_agent(message,client):
-    while True:
-        resp=client.chat.completions.create(
-            model="deepseek-chat",
-            messages=message,
-            tools=tools,
-            tool_choice="auto"
-        )
-        msg=resp.choices[0].message
-        if resp.choices[0].finish_reason=="stop":
-            print(f"Assistant: {msg.content}")
-            message.append({"role":"assistant","content":msg.content})
-            break
-        elif resp.choices[0].finish_reason=="tool_calls":
-            msg_dict={
-                "role":msg.role,
-                "content":msg.content or "",
-                "tool_calls":[
-                    {
-                        "id":tc.id,
-                        "type":tc.type,
-                        "function":{
-                            "name":tc.function.name,
-                            "arguments":tc.function.arguments
-                        }
-                    }
-                    for tc in msg.tool_calls
-                ]
-            }
-            message.append(msg_dict)
-            for tool_call in msg.tool_calls:
-                tool_name=tool_call.function.name
-                tool_content=json.loads(tool_call.function.arguments)
-                result=call_tools(tool_name,tool_content)
-                message.append(
-                    {
-                        "role":"tool",
-                        "name":tool_name,
-                        "tool_call_id":tool_call.id,
-                        "content":json.dumps(result,ensure_ascii=False)
-                    }
-                )
-        else:
-            print(f"[警告] 未知的 finish_reason: {resp.choices[0].finish_reason}")
-            break
-            
+def agent_node(state):
+    resp=model_with_tools.invoke(state["messages"])
+    return {"messages":resp}
+
+def tool_node(state):
+    msg=state["messages"][-1]
+    output=[]
+    tool_map={
+        "finish_onboarding":finish_onboarding,
+        "analysis_code":analysis_code,
+        "submit_and_get_result":submit_and_get_result,
+        "get_problem":get_problem
+    }
+    for tc in msg.tool_calls:
+        result=tool_map[tc["name"]].invoke(tc["args"])
+        output.append({
+            "role":"tool",
+            "name":tc["name"],
+            "tool_call_id":tc["id"],
+            "content":json.dumps(result,ensure_ascii=False)
+        })
+    return {"messages":output}
+
+def shou_continue(state):
+    last=state["messages"][-1]
+    return "tools" if hasattr(last,"tool_calls") and last.tool_calls else END
+
+builder=StateGraph(MessagesState)
+builder.add_node("agent",agent_node)
+builder.add_node("tool",tool_node)
+builder.add_edge(START,"agent")
+builder.add_conditional_edges("agent",shou_continue)
+builder.add_edge("tool","agent")
+builder.compile()
+
 def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
     others=[m for m in messages if m["role"]!="system"]
