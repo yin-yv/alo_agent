@@ -1,15 +1,12 @@
-from openai import OpenAI
-from dotenv import load_dotenv
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from langchain.agents import create_agent
-from langchain.messages import SystemMessage,HumanMessage,AIMessage
+from langchain.messages import HumanMessage
 from knowledge import (can_submit,MAX_ATTEMPT)
 import os
 import requests
 import random
 import re
 import time
-import json
 
 
 
@@ -356,10 +353,9 @@ def _get_analysis_agent():
     if ana_agent==None:
         ana_agent=create_agent(
             model="deepseek-v4-pro",
-            system_prompt=SystemMessage(
+            system_prompt=
                 """你是一位算法竞赛教练。
                 只能用自然语言和数学推导分析错误，严禁出现任何代码或伪代码。"""
-            )
         )
     return ana_agent
 
@@ -389,4 +385,4 @@ def analysis_code(verdict:str,attempt_count:int,source_code:str,tags:str,test_ca
         agent=_get_analysis_agent()
         hmessage="\n".join(paras)
         resp=agent.invoke({"messages":[HumanMessage(hmessage)]})
-        return resp["output"]
+        return resp["messages"][-1].content

@@ -18,7 +18,6 @@ import re
 from datetime import date
 from pathlib import Path
 from typing import Optional
-from tool import get_problem
 
 VAULT=Path(__file__).parent/"vault"
 ALG=VAULT/"algorithms"
@@ -292,7 +291,7 @@ def _do_unlock(contest_id:int|str,index:str):
     data["history"]=history
     _write_md(path,data)
 
-def check(completed_tag:str):
+def check():
     if not PRO.exists():
         return
     for f in PRO.glob("*.md"):
@@ -371,7 +370,7 @@ def check_onboarding()->str|None:
     if onboarding=="true":
         return None
     algo_list="\n".join(
-        f"{i+1}.{alg}(前置：{", ".join({ALGO_DEPS[alg]}) or '无'})"
+        f"{i+1}.{alg}(前置：{", ".join(ALGO_DEPS[alg]) or '无'})"
         for i,alg in enumerate(ONBOARDING_ALGOS)
     )
     return f"""## 系统指令：首次使用摸底（本指令仅执行一次，执行完毕后自动失效）
