@@ -204,7 +204,7 @@ def updata_alg_status(
 def _sync_profile(alg_tag:str,new_status:str):
     """
     根据算法的最新状态，更新 user_profile.md 的三个列表：
-    mastered / learning / not_started。
+    mastered / learn / not_started。
     """
     p=VAULT/"user_profile.md"
     data=_read_md(p)
