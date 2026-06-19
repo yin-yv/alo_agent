@@ -21,7 +21,7 @@ model_with_tools=model.bind_tools(tools)
 
 def agent_node(state):
     resp=model_with_tools.invoke(state["messages"])
-    return {"messages":resp}
+    return {"messages":[resp]}
 
 tool_map={
         "finish_onboarding":finish_onboarding,
