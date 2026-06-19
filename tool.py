@@ -189,7 +189,7 @@ def get_crsf(session:requests.Session,url:str)->str:
     resp.raise_for_status()
     m=re.search(r'<meta\s+name="X-Csrf-Token"\s+content="([^"]+)"',resp.text)
     if not m:
-        raise ValueError("无法获取crsf，请检查cookie是否有效")
+        raise ValueError("无法获取csrf，请检查cookie是否有效")
     return m.group(1)
 
 def _is_contest_running(session, contest_id) -> bool:
