@@ -2,9 +2,10 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from tool import get_problem,submit_and_get_result,analysis_code
 from knowledge import (
-    init_vault, updata_learning_path,finish_onboarding,build_prompt,check_onboarding
+    init_vault,finish_onboarding,build_prompt,check_onboarding
 )
 from langchain.chat_models import init_chat_model
+from langchain_core.messages import ToolMessage
 from langgraph.graph import StateGraph,END,MessagesState,START
 import os
 import json
@@ -14,177 +15,6 @@ init_vault()
 MAX_MESSAGES=20
 load_dotenv()
 
-tools=[
-    {
-        "type": "function",
-        "function": {
-            "name": "get_problem",
-            "description": (
-                "根据用户知识库和目标算法，从 Codeforces 选出最合适的题目集。"
-                "返回易/中/难各一道题，以及前置和进阶算法路径。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "alg": {
-                        "type": "string",
-                        "description": "用户想学习的算法，需与 Codeforces tag 一致，如 'dp' 'binary search' 'graphs'",
-                    },
-                    "rat": {
-                        "type": "string",
-                        "enum": ["easy", "medium", "hard"],
-                        "description": "难度档位：easy(≤1200) / medium(1200-2000) / hard(>2000)",
-                    },
-                    "prerequisites": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "学习本算法所需的前置算法列表，如 ['sorting', 'recursion']。不具备时返回学习路径提示。",
-                    },
-                    "leads_to": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "掌握本算法后可进阶的算法列表，如 ['tree dp', 'bitmask dp']",
-                    }
-                },
-                "required": ["alg", "rat", "prerequisites", "leads_to"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "submit_and_get_result",
-            "description": (
-                "将用户代码提交到 Codeforces 并等待返回评测结果。"
-                "结果包括：AC / WA / TLE / MLE / RE / CE，以及出错的测试点编号。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "contest_id": {
-                        "type": "integer",
-                        "description": "题目所在 contest 的 ID，如题目 1A 的 contest_id 为 1",
-                    },
-                    "problem_index": {
-                        "type": "string",
-                        "description": "题目编号，如 'A' 'B' 'C1'",
-                    },
-                    "lang": {
-                        "type": "string",
-                        "enum": ["python", "pypy", "cpp17", "cpp20", "java", "c"],
-                        "description": "提交语言",
-                    },
-                    "source_code": {
-                        "type": "string",
-                        "description": "用户提交的完整源代码",
-                    }
-                },
-                "required": ["contest_id", "problem_index", "lang", "source_code"],
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "analysis_code",
-            "description": (
-                "根据 submit_and_get_result 的结果，分析代码错误原因。"
-                "第一次提交只给 verdict，第二次及以上给出具体位置和原因。"
-                "只能用自然语言和数学推导，不得出现代码或伪代码。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "verdict": {
-                        "type": "string",
-                        "enum": ["WA", "TLE", "MLE", "RE", "CE"],
-                        "description": "评测结果类型",
-                    },
-                    "test_case": {
-                        "type": "integer",
-                        "description": "出错的测试点编号",
-                    },
-                    "attempt_count": {
-                        "type": "integer",
-                        "description": "用户对本题的提交次数和错误类型，决定反馈详细程度",
-                    },
-                    "source_code": {
-                        "type": "string",
-                        "description": "用户的源代码，用于分析错误位置"
-                    },
-                    "tags":{
-                        "type":"string",
-                        "description":"当前题目的标签"
-                    }
-                },
-                "required": ["verdict", "attempt_count", "source_code","tags"],
-            }
-        }
-    },
-    {
-        "type":"function",
-        "function":{
-            "name":"updata_learning_path",
-            "description":"实时更新用户的提交记录和路径",
-            "parameters":{
-                "type":"object",
-                "properties":{
-                    "current_alg":{
-                        "type":"string",
-                        "description":"当前学习的算法"
-                    },
-                    "next_alg":{
-                        "type":"array",
-                        "description":"下一个要学习算法的tag"
-                    }
-                },
-                "required":["current_alg","next_alg"]
-            }
-        }
-    },
-    {
-        "type":"function",
-        "function":{
-            "name":"finish_onboarding",
-            "description":(
-                "摸底对话全部结束后调用一次，将用户算法掌握情况原子性写入知识库，"
-                "并设定推荐的学习起点和后续路径。"
-                "必须且只能在所有算法均已判定完毕后调用。"
-            ),
-            "parameters":{
-                "type":"object",
-                "properties":{
-                    "mastered":{
-                        "type":"array",
-                        "items":{"type":"string"},
-                        "description":"用户已经深度掌握的算法的tag列表,easy/medium/hard全部AC"
-                    },
-                    "learn":{
-                        "type":"array",
-                        "items":{"type":"string"},
-                        "description":"了解基础但不熟悉的算法tag列表，easy全部AC"
-                    },
-                    "not_started":{
-                        "type":"array",
-                        "items":{"type":"string"},
-                        "description":"完全未掌握或跳过的算法tag列表，easy未全部AC或者跳过"
-                    },
-                    "current_alg":{
-                        "type":"string",
-                        "description":"摸底后推荐学习的算法tag"
-                    },
-                    "next_alg":{
-                        "type":"array",
-                        "items":{"type":"string"},
-                        "description":"后续2~4个进阶算法学习路线，按照与掌握的关联降序排列"
-                    }
-                },
-                "required":["mastered","learn","not_started","current_alg","next_alg"]
-            }
-        }
-    }
-]
-
 model=init_chat_model(model="deepseek-chat")
 tools=[finish_onboarding,analysis_code,submit_and_get_result,get_problem]
 model_with_tools=model.bind_tools(tools)
@@ -193,26 +23,28 @@ def agent_node(state):
     resp=model_with_tools.invoke(state["messages"])
     return {"messages":resp}
 
-def tool_node(state):
-    msg=state["messages"][-1]
-    output=[]
-    tool_map={
+tool_map={
         "finish_onboarding":finish_onboarding,
         "analysis_code":analysis_code,
         "submit_and_get_result":submit_and_get_result,
         "get_problem":get_problem
-    }
+}
+
+def tool_node(state):
+    msg=state["messages"][-1]
+    output=[]
     for tc in msg.tool_calls:
         result=tool_map[tc["name"]].invoke(tc["args"])
         output.append({
-            "role":"tool",
-            "name":tc["name"],
-            "tool_call_id":tc["id"],
-            "content":json.dumps(result,ensure_ascii=False)
+            ToolMessage(
+                content=json.dumps(result,ensure_ascii=False),
+                tool_id=tc["id"],
+                tool_name=tc["name"]
+            )
         })
     return {"messages":output}
 
-def shou_continue(state):
+def should_continue(state):
     last=state["messages"][-1]
     return "tools" if hasattr(last,"tool_calls") and last.tool_calls else END
 
@@ -220,9 +52,9 @@ builder=StateGraph(MessagesState)
 builder.add_node("agent",agent_node)
 builder.add_node("tool",tool_node)
 builder.add_edge(START,"agent")
-builder.add_conditional_edges("agent",shou_continue)
+builder.add_conditional_edges("agent",should_continue)
 builder.add_edge("tool","agent")
-builder.compile()
+graph=builder.compile()
 
 def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
@@ -248,8 +80,10 @@ def context_cpmress(messages,client):
         ]
     )
     summary=resp.choices[0].message.content
-    summary.append(panding if panding else "")
-    return system+[{"role":"assistant","content":f"对话摘要: {summary}"}]
+    compress=system+[{"role":"assistant","content":f"对话摘要：{summary}"}]
+    if panding:
+        compress.append(panding)
+    return compress
 
 def Input(prompt="User: ")->str:
     print(prompt+"(end结束输入,quit退出)")
@@ -418,13 +252,15 @@ while True:
         if user_input=="quit":
             break
         messages.append({"role":"user","content":user_input})
-        run_agent(messages,client)
+        result=graph.invoke({"messages":messages})
+        messages=result["messages"]
         if len(messages)>MAX_MESSAGES+5:
             messages=context_cpmress(messages,client)
     else:
         if messagesob is None:
             messagesob=[{"role":"system","content":promptbo}]
-        run_agent(messagesob,client)
+        result=graph.invoke({"messages":messagesob})
+        messagesob=result["messages"]
         user_input=Input("User: ")
         if user_input=="quit":
             break

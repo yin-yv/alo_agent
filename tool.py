@@ -216,13 +216,13 @@ async def _submit(session:aiohttp.ClientSession,source_code:str,contest_id:int,p
         submit_url = f"https://codeforces.com/gym/{contest_id}/submit"
         index_field = "submittedProblemIndex"
     else:
-        if _is_contest_running(session, contest_id):
+        if _is_contest_running(contest_id):
             submit_url = f"https://codeforces.com/contest/{contest_id}/submit"
             index_field = "submitProblemIndex"
         else:
             submit_url = "https://codeforces.com/problemset/submit"
             index_field = "submittedProblemIndex"
-    csrf=await get_crsf(submit_url)
+    csrf=await get_crsf(session,submit_url)
     lang_id=_LANG_ID.get(lang)
     if lang_id is None:
         raise ValueError(f"不支持当前语言，可选{list(_LANG_ID)}")
@@ -246,8 +246,8 @@ async def _submit(session:aiohttp.ClientSession,source_code:str,contest_id:int,p
         resp.raise_for_status()
         text=await resp.text()
         url=str(resp.url)
-        status_code=resp.status_code
-    if "submitSolutionFormSubmit" in resp.url or resp.status_code !=200:
+        status_code=resp.status
+    if "submitSolutionFormSubmit" in url or status_code !=200:
         err_m=re.search(r'error[^>]*>([^<]{5,200})', text, re.I)
         hint=err_m.group(1).strip() if err_m else "位置错误，请确认cookie未到期"
         raise RuntimeError(f"CF提交失败：{hint}")
@@ -332,20 +332,20 @@ async def _submit_and_get_result(contest_id:str,problem_index:str,lang:str,sourc
     async with session:
         print(f"  📤 正在提交 contest {contest_id} / {problem_index.upper()} ({lang})…")
         await _submit(session,source_code,contest_id,problem_index,lang)
-    #获取submission_id
-    submission=None
-    for _ in range(6):
-        await asyncio.sleep(5)
-        try:
-            submission =await _least_submissionId(session, contest_id, problem_index)
-            print(f"  ✅ 提交成功，submission ID = {submission}（无需在 CF 上重复提交）")
-            break
-        except RuntimeError:
-            print(f"  ⏳ 等待提交入库… ({_+1}/6)")
-    if submission==None:
-        raise RuntimeError("提交入库超时，请稍后手动查询结果")
-    #轮询结果
-    result=await _poll_verdict(session,submission,contest_id,timeout=120)
+        #获取submission_id
+        submission=None
+        for _ in range(6):
+            await asyncio.sleep(5)
+            try:
+                submission =await _least_submissionId(session, contest_id, problem_index)
+                print(f"  ✅ 提交成功，submission ID = {submission}（无需在 CF 上重复提交）")
+                break
+            except RuntimeError:
+                print(f"  ⏳ 等待提交入库… ({_+1}/6)")
+        if submission==None:
+            raise RuntimeError("提交入库超时，请稍后手动查询结果")
+        #轮询结果
+        result=await _poll_verdict(session,submission,contest_id,timeout=120)
     verdict_list=(
         f"  🏁 评测完成：{result['verdict']}"
         + (f"(在第{result['test_case']}个测试点出错)" if result['test_case'] else "")
@@ -368,7 +368,7 @@ def _get_analysis_agent():
         )
     return ana_agent
 
-@tool(name_or_callable="analsis_code",description="根据submit_and_get_result得到的结果，分析代码")
+@tool(name_or_callable="analysis_code",description="根据submit_and_get_result得到的结果，分析代码")
 def analysis_code(verdict:str,attempt_count:int,source_code:str,tags:str,test_case:int=None)->str:
     ver=_VERDICT_MAP.get(verdict,verdict)
     tag=get_tag(tags)

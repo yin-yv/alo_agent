@@ -100,7 +100,7 @@ def _write_md(path:Path,data:dict,body:str=""):
     path.write_text("\n".join(lines)+"\n",encoding="utf-8")
 
 def _alg_path(alg_tag:str)->Path:
-    name=alg_tag.strip().lower().replace("","-")
+    name=alg_tag.strip().lower().replace(" ","-")
     return ALG/f"{name}.md"
 
 def _pro_path(contextId:int|str,index:str)->Path:
@@ -120,7 +120,7 @@ def init_vault():
             body="#用户学习档案\n\n在此记录学习过程"
             )
     lp=VAULT/"learning_path.md"
-    if lp.exists():
+    if not lp.exists():
         _write_md(lp,{
             "current_alg":"",
             "next_alg":[]
@@ -344,7 +344,7 @@ def record_submission(
     _write_md(path,data)
     if verdict=="AC" and alg_tag:
         _on_ac(alg_tag)
-        check(alg_tag)
+        check()
     return data
 
 def _on_ac(alg_tag:str):
@@ -525,6 +525,6 @@ def build_prompt()->str:
     lines.append(f"- 正在学习: {', '.join(learning) if learning else '无'}")
     lines.append(f"- 尚未涉及: {', '.join(not_started) if not_started else '未记录'}")
     if lp.get("current_alg"):
-        lines.append(f"- 当前学习路径: {lp['current_alg']} → {', '.join(lp.get('next_algs', []))}")
+        lines.append(f"- 当前学习路径: {lp['current_alg']} → {', '.join(lp.get('next_alg', []))}")
     lines.append(f"- 每题最多提交次数: {MAX_ATTEMPT}")
     return "\n".join(lines)
