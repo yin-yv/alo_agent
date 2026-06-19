@@ -367,10 +367,10 @@ def updata_learning_path(current_alg:str,next_alg:list[str]):
 def check_onboarding()->str|None:
     profile=get_user()
     onboarding=profile.get("onboarding_done")
-    if onboarding=="true":
+    if onboarding=="True":
         return None
     algo_list="\n".join(
-        f"{i+1}.{alg}(前置：{", ".join(ALGO_DEPS[alg]) or '无'})"
+        f"{i+1}.{alg}(前置：{', '.join(ALGO_DEPS[alg]) or '无'})"
         for i,alg in enumerate(ONBOARDING_ALGOS)
     )
     return f"""## 系统指令：首次使用摸底（本指令仅执行一次，执行完毕后自动失效）
@@ -460,8 +460,25 @@ def check_onboarding()->str|None:
 - `next_alg`：后续 2–4 个进阶算法，按建议学习顺序排列。
  
 ---
- 
-### 七、禁止行为
+### 七、示例
+- 专题：排序
+- 题目：CF 1933A tag：贪心、数学、排序
+- ...
+- 专题：动态规划
+- 题目：CF 2237H tag：动态规划、树
+- ...
+现在开始第一题
+---
+### 八、代码提交流程（摸底期间同样强制执行）
+
+**触发条件**：用户粘贴代码，或明确表示"提交"、"测评"等意图。
+
+**执行步骤**：
+1. 必须调用 `submit_and_get_result` 工具，将代码提交至 Codeforces 并获取评测结果。
+2. **禁止**在未调用该工具的情况下，自行判断、猜测或编造评测结果。
+3. 获取结果后，按本指令第 3.3 节的反馈规则回复用户，并据此更新当前题目的判定状态（AC / 耗尽提交 / 放弃）。
+---
+### 九、禁止行为
  
 - ❌ 禁止用口头问答（"你会 DP 吗？"）代替实际做题评估
 - ❌ 禁止在 easy 未通过的情况下仍推送 medium / hard

@@ -4,7 +4,7 @@ from tool import get_problem,submit_and_get_result,analysis_code
 import os
 import json
 from knowledge import (
-    init_vault, updata_learning_path,finish_onboarding
+    init_vault, updata_learning_path,finish_onboarding,build_prompt,check_onboarding
 )
 init_vault()
 
@@ -163,7 +163,7 @@ tools=[
                     },
                     "not_started":{
                         "type":"array",
-                        "items":{"type","string"},
+                        "items":{"type":"string"},
                         "description":"完全未掌握或跳过的算法tag列表，easy未全部AC或者跳过"
                     },
                     "current_alg":{
@@ -245,6 +245,13 @@ def run_agent(message,client):
 def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
     others=[m for m in messages if m["role"]!="system"]
+    if not others:
+        return messages
+    last=others[-1]
+    panding=last if last["role"]=="user" else None
+    body=others[:-1] if panding else others
+    if not body:
+        return messages
     history="\n".join([f"{m['role']}:{m.get('content') or '[工具调用]'}" for m in others])
     resp=client.chat.completions.create(
         model="deepseek-chat",
@@ -259,6 +266,7 @@ def context_cpmress(messages,client):
         ]
     )
     summary=resp.choices[0].message.content
+    summary.append(panding if panding else "")
     return system+[{"role":"assistant","content":f"对话摘要: {summary}"}]
 
 def Input(prompt="User: ")->str:
@@ -413,15 +421,32 @@ client=OpenAI(
     base_url="https://api.deepseek.com/v1"
 )
 
+prompt=build_prompt()
+
 messages=[
-    {"role":"system","content":system_prompt}
+    {"role":"system","content":system_prompt+prompt}
 ]
 
+messagesob=None
+
 while True:
-    user_input=Input("User: ")
-    if user_input=="quit":
-        break
-    messages.append({"role":"user","content":user_input})
-    run_agent(messages,client)
-    if len(messages)>MAX_MESSAGES+5:
-        messages=context_cpmress(messages,client)
+    promptbo=check_onboarding()
+    if promptbo is None:
+        user_input=Input("User: ")
+        if user_input=="quit":
+            break
+        messages.append({"role":"user","content":user_input})
+        run_agent(messages,client)
+        if len(messages)>MAX_MESSAGES+5:
+            messages=context_cpmress(messages,client)
+    else:
+        if messagesob is None:
+            messagesob=[{"role":"system","content":promptbo}]
+        run_agent(messagesob,client)
+        user_input=Input("User: ")
+        if user_input=="quit":
+            break
+        messagesob.append({"role":"user","content":user_input})
+        if len(messagesob)>MAX_MESSAGES+5:
+            messagesob=context_cpmress(messagesob,client)
+        
