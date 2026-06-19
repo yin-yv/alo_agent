@@ -160,7 +160,7 @@ def _poll():
     while True:
         yield 20
 
-async def get_cookie()->aiohttp.ClientSession:
+def get_cookie()->aiohttp.ClientSession:
     #"从.env获取cookie"
     cookie_file=["JSESSIONID","39ce7","70a7c28f3de","cf_clearance","X-User"]
     cookie={f:os.getenv(f,"") for f in cookie_file}
@@ -179,7 +179,7 @@ async def get_cookie()->aiohttp.ClientSession:
         },
         trust_env=True)
     for k,v in cookie.items():
-        s.cookie_jar.update_cookies({k,v},aiohttp.URL("https://codeforces.com"))
+        s.cookie_jar.update_cookies({k:v},aiohttp.URL("https://codeforces.com"))
     return s
 
 async def get_crsf(session:aiohttp.ClientSession,url:str)->str:
@@ -192,9 +192,9 @@ async def get_crsf(session:aiohttp.ClientSession,url:str)->str:
         raise ValueError("无法获取csrf，请检查cookie是否有效")
     return m.group(1)
 
-def _is_contest_running(session, contest_id) -> bool:
+def _is_contest_running(contest_id) -> bool:
     try:
-        resp = session.get(
+        resp =requests.get(
             "https://codeforces.com/api/contest.list",
             params={"gym": False},
             timeout=10
@@ -220,7 +220,7 @@ async def _submit(session:aiohttp.ClientSession,source_code:str,contest_id:int,p
         else:
             submit_url = "https://codeforces.com/problemset/submit"
             index_field = "submittedProblemIndex"
-    csrf=await get_crsf(session,submit_url)
+    csrf=await get_crsf(submit_url)
     lang_id=_LANG_ID.get(lang)
     if lang_id is None:
         raise ValueError(f"不支持当前语言，可选{list(_LANG_ID)}")
@@ -243,8 +243,8 @@ async def _submit(session:aiohttp.ClientSession,source_code:str,contest_id:int,p
     ) as resp:
         resp.raise_for_status()
         text=await resp.text()
-        url=await resp.url
-        status_code=await resp.status_code
+        url=str(resp.url)
+        status_code=resp.status_code
     if "submitSolutionFormSubmit" in resp.url or resp.status_code !=200:
         err_m=re.search(r'error[^>]*>([^<]{5,200})', text, re.I)
         hint=err_m.group(1).strip() if err_m else "位置错误，请确认cookie未到期"
@@ -264,7 +264,7 @@ async def _least_submissionId(session:aiohttp.ClientSession,contest_id:int,probl
         timeout=15
     ) as resp:
         resp.raise_for_status()
-        data=resp.json()
+        data=await resp.json()
     if data.get("status") !="OK":
         raise RuntimeError(f"获取列表失败，{data.get('comment','未知')}")
     target_Index=problem_id.upper()
@@ -322,13 +322,14 @@ async def _poll_verdict(session:aiohttp.ClientSession,submission_id:int,contest_
         "建议：检查网络后告知我重试，无需在 CF 上重复提交。"
     )
 
-async def submit_and_get_result(contest_id:str,problem_index:str,lang:str,source_code:str)->str:
+async def _submit_and_get_result(contest_id:str,problem_index:str,lang:str,source_code:str)->str:
     if not can_submit(contest_id, problem_index)["allowed"]:
         return {"error": f"该题已达 {MAX_ATTEMPT} 次提交上限，前置算法知识不牢，回退至前置算法"}
-    session=await get_cookie()
+    session=get_cookie()
     #提交
-    print(f"  📤 正在提交 contest {contest_id} / {problem_index.upper()} ({lang})…")
-    await _submit(session,source_code,contest_id,problem_index,lang)
+    async with session:
+        print(f"  📤 正在提交 contest {contest_id} / {problem_index.upper()} ({lang})…")
+        await _submit(session,source_code,contest_id,problem_index,lang)
     #获取submission_id
     submission=None
     for _ in range(6):
@@ -350,6 +351,8 @@ async def submit_and_get_result(contest_id:str,problem_index:str,lang:str,source
     print(verdict_list)
     return result
 
+def submit_and_get_result(contest_id:str,problem_index:str,lang:str,source_code:str)->dict:
+    return asyncio.run(_submit_and_get_result(contest_id,problem_index,lang,source_code))
 ana_agent=None
 def _get_analysis_agent():
     global ana_agent
