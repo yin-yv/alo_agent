@@ -266,8 +266,10 @@ def context_cpmress(messages,client):
         ]
     )
     summary=resp.choices[0].message.content
-    summary.append(panding if panding else "")
-    return system+[{"role":"assistant","content":f"对话摘要: {summary}"}]
+    compress=system+[{"role":"assistant","content":f"对话摘要：{summary}"}]
+    if panding:
+        compress.append(panding)
+    return compress
 
 def Input(prompt="User: ")->str:
     print(prompt+"(end结束输入,quit退出)")
