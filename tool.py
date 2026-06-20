@@ -7,8 +7,6 @@ import requests
 import random
 import re
 import time
-import aiohttp
-import asyncio
 
 
 
@@ -160,41 +158,39 @@ def _poll():
     while True:
         yield 20
 
-async def get_cookie()->aiohttp.ClientSession:
+def get_cookie()->requests.Session:
     #"从.env获取cookie"
     cookie_file=["JSESSIONID","39ce7","70a7c28f3de","cf_clearance","X-User"]
     cookie={f:os.getenv(f,"") for f in cookie_file}
     missing=[k for k,v in cookie.items() if not v]
     if missing:
         raise EnvironmentError(f"缺少关键字段:{', '.join(missing)}")
-    s=aiohttp.ClientSession(
-        headers=
-            {
-            "User-Agent": (
+    s=requests.Session()
+    s.headers.update({
+        "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/124.0.0.0 Safari/537.36"
         ),
         "Referer": "https://codeforces.com/"
-        },
-        trust_env=True)
+    })
+    s.trust_env=True
     for k,v in cookie.items():
-        s.cookie_jar.update_cookies({k:v},aiohttp.URL("https://codeforces.com"))
+        s.cookies.set(k,v,domain="codeforces.com")
     return s
 
-async def get_crsf(session:aiohttp.ClientSession,url:str)->str:
-    timeout=aiohttp.ClientTimeout(total=15)
-    async with session.get(url,timeout=timeout) as resp:
-        resp.raise_for_status()
-        text=await resp.text()
+def get_crsf(session:requests.Session,url:str)->str:
+    resp=session.get(url,timeout=15)
+    resp.raise_for_status()
+    text=resp.text
     m=re.search(r'<meta\s+name="X-Csrf-Token"\s+content="([^"]+)"',text)
     if not m:
         raise ValueError("无法获取csrf，请检查cookie是否有效")
     return m.group(1)
 
-def _is_contest_running(session, contest_id) -> bool:
+def _is_contest_running(contest_id) -> bool:
     try:
-        resp = session.get(
+        resp =requests.get(
             "https://codeforces.com/api/contest.list",
             params={"gym": False},
             timeout=10
@@ -209,18 +205,18 @@ def _is_contest_running(session, contest_id) -> bool:
     except Exception:
         return False
 
-async def _submit(session:aiohttp.ClientSession,source_code:str,contest_id:int,problem_index:str,lang:str)->None:
+def _submit(session:requests.Session,source_code:str,contest_id:int,problem_index:str,lang:str)->None:
     if contest_id >= 100000:
         submit_url = f"https://codeforces.com/gym/{contest_id}/submit"
         index_field = "submittedProblemIndex"
     else:
-        if _is_contest_running(session, contest_id):
+        if _is_contest_running(contest_id):
             submit_url = f"https://codeforces.com/contest/{contest_id}/submit"
             index_field = "submitProblemIndex"
         else:
             submit_url = "https://codeforces.com/problemset/submit"
             index_field = "submittedProblemIndex"
-    csrf=await get_crsf(session,submit_url)
+    csrf=get_crsf(session,submit_url)
     lang_id=_LANG_ID.get(lang)
     if lang_id is None:
         raise ValueError(f"不支持当前语言，可选{list(_LANG_ID)}")
@@ -234,18 +230,18 @@ async def _submit(session:aiohttp.ClientSession,source_code:str,contest_id:int,p
         index_field:problem_index.upper(),
         "_tta": str(int(time.time() * 1000) % 1000)
     }
-    async with session.post(
+    resp=session.post(
         submit_url,
         data=pal,
         params={"csrf_token":csrf},
         timeout=20,
         allow_redirects=True
-    ) as resp:
-        resp.raise_for_status()
-        text=await resp.text()
-        url=await resp.url
-        status_code=await resp.status_code
-    if "submitSolutionFormSubmit" in resp.url or resp.status_code !=200:
+    )
+    resp.raise_for_status()
+    text=resp.text
+    url=resp.url
+    status_code=resp.status_code
+    if "submitSolutionFormSubmit" in url or status_code !=200:
         err_m=re.search(r'error[^>]*>([^<]{5,200})', text, re.I)
         hint=err_m.group(1).strip() if err_m else "位置错误，请确认cookie未到期"
         raise RuntimeError(f"CF提交失败：{hint}")
@@ -253,18 +249,18 @@ async def _submit(session:aiohttp.ClientSession,source_code:str,contest_id:int,p
         raise RuntimeError("CF提交失败：页面未正常跳转，cookie可能已失效")
     print(f"  [DEBUG] 提交后跳转到: {url}, 状态码: {status_code}")
 
-async def _least_submissionId(session:aiohttp.ClientSession,contest_id:int,problem_id:str)->int:
+def _least_submissionId(session:requests.Session,contest_id:int,problem_id:str)->int:
     handle = os.getenv("CF_HANDLE", "")
     if not handle:
         raise EnvironmentError("无法获取CF用户handle，请在.env中设置CF_HANDLE=你的用户名")
     url="https://codeforces.com/api/contest.status"
-    async with session.get(
+    resp=session.get(
         url,
         params={"contestId":contest_id,"handle":handle,"from":1,"count":50},
         timeout=15
-    ) as resp:
-        resp.raise_for_status()
-        data=resp.json()
+    )
+    resp.raise_for_status()
+    data=resp.json()
     if data.get("status") !="OK":
         raise RuntimeError(f"获取列表失败，{data.get('comment','未知')}")
     target_Index=problem_id.upper()
@@ -276,7 +272,7 @@ async def _least_submissionId(session:aiohttp.ClientSession,contest_id:int,probl
         "可能提交尚未入库，请稍后重试"
     )
 #轮询结果
-async def _poll_verdict(session:aiohttp.ClientSession,submission_id:int,contest_id:str,timeout=120)->dict[str,Any]:
+def _poll_verdict(session:requests.Session,submission_id:int,contest_id:str,timeout=120)->dict[str,Any]:
     url="https://codeforces.com/api/contest.status"
     deadline=timeout+time.time()
     intervals=_poll()
@@ -285,13 +281,13 @@ async def _poll_verdict(session:aiohttp.ClientSession,submission_id:int,contest_
         raise EnvironmentError("无法获取CF用户handle，请在.env中设置CF_HANDLE=你的用户名")
     while time.time()<deadline:
         try:
-            async with session.get(
+            resp=session.get(
                 url,
                 params={"contestId":contest_id,"handle":handle,"from":1,"count":50},
                 timeout=15
-            ) as resp:
-                resp.raise_for_status()
-                data=await resp.json()
+            )
+            resp.raise_for_status()
+            data=resp.json()
         except Exception as e:
             raise RuntimeError(f"轮询结果时网络异常{e}")
         if data.get("status") !="OK":
@@ -315,26 +311,26 @@ async def _poll_verdict(session:aiohttp.ClientSession,submission_id:int,contest_
         else:
             print(f"  ⏳ 等待 submission #{submission_id} 出现在评测队列…")
             sleep=next(intervals)
-            await asyncio.sleep(min(sleep,deadline-time.time()))
+            time.sleep(min(sleep,deadline-time.time()))
     raise TimeoutError(
         f"评测超时（>{timeout}s），submission #{submission_id} 尚未返回结果。\n"
         "可能原因：网络波动 / CF 服务器繁忙 / cookie 已失效。\n"
         "建议：检查网络后告知我重试，无需在 CF 上重复提交。"
     )
 
-async def submit_and_get_result(contest_id:str,problem_index:str,lang:str,source_code:str)->str:
+def submit_and_get_result(contest_id:str,problem_index:str,lang:str,source_code:str)->str:
     if not can_submit(contest_id, problem_index)["allowed"]:
         return {"error": f"该题已达 {MAX_ATTEMPT} 次提交上限，前置算法知识不牢，回退至前置算法"}
-    session=await get_cookie()
+    session=get_cookie()
     #提交
     print(f"  📤 正在提交 contest {contest_id} / {problem_index.upper()} ({lang})…")
-    await _submit(session,source_code,contest_id,problem_index,lang)
+    _submit(session,source_code,contest_id,problem_index,lang)
     #获取submission_id
     submission=None
     for _ in range(6):
-        await asyncio.sleep(5)
+        time.sleep(5)
         try:
-            submission =await _least_submissionId(session, contest_id, problem_index)
+            submission =_least_submissionId(session, contest_id, problem_index)
             print(f"  ✅ 提交成功，submission ID = {submission}（无需在 CF 上重复提交）")
             break
         except RuntimeError:
@@ -342,7 +338,7 @@ async def submit_and_get_result(contest_id:str,problem_index:str,lang:str,source
     if submission==None:
         raise RuntimeError("提交入库超时，请稍后手动查询结果")
     #轮询结果
-    result=await _poll_verdict(session,submission,contest_id,timeout=120)
+    result=_poll_verdict(session,submission,contest_id,timeout=120)
     verdict_list=(
         f"  🏁 评测完成：{result['verdict']}"
         + (f"(在第{result['test_case']}个测试点出错)" if result['test_case'] else "")
