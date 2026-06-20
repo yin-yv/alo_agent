@@ -121,6 +121,7 @@ def init_vault():
     lp=VAULT/"learning_path.md"
     if not lp.exists():
         _write_md(lp,{
+            "prerequisites":[],
             "current_alg":"",
             "next_alg":[]
         },body="当前的学习路径")
@@ -131,7 +132,7 @@ def get_user():
 def set_boarding():
     p=VAULT/"user_profile.md"
     data=_read_md(p)
-    data["onboarding_done"]="True"
+    data["onboarding_done"]="true"
     _write_md(p,data)
 
 def get_master_alg()->list[str]:
@@ -234,7 +235,9 @@ def get_problem_record(contest_id:int|str,index:str):
             "attempt_count":0,
             "url":"",
             "status":"",
-            "record_history":[]
+            "record_history":[],
+            "prerequisites":[],
+            "last_updated":""
         }
     data.setdefault("unlock_count",0)
     return data
@@ -289,6 +292,7 @@ def _do_unlock(contest_id:int|str,index:str):
     history=data.get("history",[])
     history.append(f"UNLOCK_COUNT #{data['unlock_count']}")
     data["history"]=history
+    data["last_updated"]=str(date.today())
     _write_md(path,data)
 
 def check():
@@ -330,6 +334,8 @@ def record_submission(
         "verdict_history": [],
         "status":          "",
         "url":             url or "",
+        "prerequisites":   [],
+        "last_updated":    str(date.today()),
     }
     if alg_tag:
         data["alg_tag"]=alg_tag
@@ -340,6 +346,7 @@ def record_submission(
     history.append(verdict)
     data["verdict_history"]=history
     data["status"]=verdict
+    data["last_updated"]=str(date.today())
     _write_md(path,data)
     if verdict=="AC" and alg_tag:
         _on_ac(alg_tag)
