@@ -179,7 +179,7 @@ async def get_cookie()->aiohttp.ClientSession:
         },
         trust_env=True)
     for k,v in cookie.items():
-        s.cookie_jar.update_cookies({k,v},aiohttp.URL("https://codeforces.com"))
+        s.cookie_jar.update_cookies({k:v},aiohttp.URL("https://codeforces.com"))
     return s
 
 async def get_crsf(session:aiohttp.ClientSession,url:str)->str:
