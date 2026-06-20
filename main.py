@@ -35,13 +35,13 @@ def tool_node(state):
     output=[]
     for tc in msg.tool_calls:
         result=tool_map[tc["name"]].invoke(tc["args"])
-        output.append({
+        output.append(
             ToolMessage(
                 content=json.dumps(result,ensure_ascii=False),
                 tool_id=tc["id"],
                 tool_name=tc["name"]
             )
-        })
+        )
     return {"messages":output}
 
 def should_continue(state):
