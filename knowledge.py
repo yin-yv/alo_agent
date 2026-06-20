@@ -234,8 +234,7 @@ def get_problem_record(contest_id:int|str,index:str):
             "alg_tag":"",
             "attempt_count":0,
             "url":"",
-            "status":"",
-            "record_history":[]
+            "status":""
         }
     data.setdefault("unlock_count",0)
     return data
@@ -245,7 +244,7 @@ def can_submit(contest_id:int|str,index:str):
     if record["attempt_count"]<MAX_ATTEMPT:
         return {"allowed":True}
     alg_tag=record.get("alg_tag","")
-    if alg_tag is None:
+    if not alg_tag:
         return {
             "allowed":    False,
             "reason":     f"该题已达 {MAX_ATTEMPT} 次提交上限，且未绑定算法标签，无法自动解锁。",
@@ -503,7 +502,7 @@ def finish_onboarding(mastered:list[str],learn:list[str],not_started:list[str],c
     updata_learning_path(current_alg,next_alg)
     set_boarding()
     return {
-        "status":"onboarding_comlpete",
+        "status":"onboarding_complete",
         "mastered":mastered,
         "learn":learn,
         "not_started":not_started,

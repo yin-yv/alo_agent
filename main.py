@@ -56,7 +56,7 @@ builder.add_conditional_edges("agent",should_continue)
 builder.add_edge("tool","agent")
 graph=builder.compile()
 
-def context_cpmress(messages,client):
+def context_compress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
     others=[m for m in messages if m["role"]!="system"]
     if not others:
@@ -255,7 +255,7 @@ while True:
         result=graph.invoke({"messages":messages})
         messages=result["messages"]
         if len(messages)>MAX_MESSAGES+5:
-            messages=context_cpmress(messages,client)
+            messages=context_compress(messages,client)
     else:
         if messagesob is None:
             messagesob=[{"role":"system","content":promptbo}]
@@ -266,5 +266,5 @@ while True:
             break
         messagesob.append({"role":"user","content":user_input})
         if len(messagesob)>MAX_MESSAGES+5:
-            messagesob=context_cpmress(messagesob,client)
+            messagesob=context_compress(messagesob,client)
         

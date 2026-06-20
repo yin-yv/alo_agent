@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from langchain.agents import create_agent
 from langchain.messages import HumanMessage
-from knowledge import (can_submit,MAX_ATTEMPT)
+from knowledge import (can_submit,MAX_ATTEMPT,record_submission)
 from langchain.tools import tool
 import os
 import requests
@@ -138,7 +138,7 @@ def get_problem(alg:str,rat:str,leads_to:list[str],prerequisites:list[str]) ->Di
         }
     """
     if rat not in rating:
-        return [{"error":f"rat参数无效，应为easy/medium/hard，收到：{rat!r}"}]
+        return {"error":f"rat参数无效，应为easy/medium/hard，收到：{rat!r}"}
     tags=get_tag(alg)
     lo,hi=rating[rat]
     problem=_fetch_problem(tags,lo,hi,n=3)
@@ -194,14 +194,15 @@ async def get_crsf(session:aiohttp.ClientSession,url:str)->str:
         raise ValueError("无法获取csrf，请检查cookie是否有效")
     return m.group(1)
 
-def _is_contest_running(contest_id) -> bool:
+async def _is_contest_running(contest_id) -> bool:
     try:
-        resp =requests.get(
-            "https://codeforces.com/api/contest.list",
-            params={"gym": False},
-            timeout=10
-        )
-        data = resp.json()
+        async with aiohttp.ClientSession() as tmp_session:
+            async with tmp_session.get(
+                "https://codeforces.com/api/contest.list",
+                params={"gym": False},
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                data = await resp.json()
         if data.get("status") != "OK":
             return False
         for c in data["result"]:
@@ -216,7 +217,7 @@ async def _submit(session:aiohttp.ClientSession,source_code:str,contest_id:int,p
         submit_url = f"https://codeforces.com/gym/{contest_id}/submit"
         index_field = "submittedProblemIndex"
     else:
-        if _is_contest_running(contest_id):
+        if await _is_contest_running(contest_id):
             submit_url = f"https://codeforces.com/contest/{contest_id}/submit"
             index_field = "submitProblemIndex"
         else:
@@ -346,6 +347,13 @@ async def _submit_and_get_result(contest_id:str,problem_index:str,lang:str,sourc
             raise RuntimeError("提交入库超时，请稍后手动查询结果")
         #轮询结果
         result=await _poll_verdict(session,submission,contest_id,timeout=120)
+    url=f"https://codeforces.com/contest/{contest_id}/problem/{problem_index}"
+    record_submission(
+        contestId=contest_id,
+        index=problem_index,
+        verdict=result["verdict"],
+        url=url
+    )
     verdict_list=(
         f"  🏁 评测完成：{result['verdict']}"
         + (f"(在第{result['test_case']}个测试点出错)" if result['test_case'] else "")
