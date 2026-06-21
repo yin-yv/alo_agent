@@ -374,7 +374,7 @@ def updata_learning_path(current_alg:str,next_alg:list[str]):
 def check_onboarding()->str|None:
     profile=get_user()
     onboarding=profile.get("onboarding_done")
-    if onboarding=="True":
+    if onboarding=="true":
         return None
     algo_list="\n".join(
         f"{i+1}.{alg}(前置：{', '.join(ALGO_DEPS[alg]) or '无'})"
