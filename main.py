@@ -5,7 +5,7 @@ from knowledge import (
     init_vault,finish_onboarding,build_prompt,check_onboarding,updata_learning_path,get_attempt_count
 )
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import ToolMessage,HumanMessage,SystemMessage
 from langgraph.graph import StateGraph,END,MessagesState,START
 import os
 import json
@@ -251,7 +251,7 @@ client=OpenAI(
 prompt=build_prompt()
 
 messages=[
-    {"role":"system","content":system_prompt+prompt}
+    SystemMessage(system_prompt+prompt)
 ]
 
 messagesob=None
@@ -262,22 +262,26 @@ while True:
         user_input=Input("User: ")
         if user_input=="quit":
             break
-        messages.append({"role":"user","content":user_input})
+        messages.append(HumanMessage(user_input))
         result=graph.invoke({"messages":messages})
         messages=result["messages"]
+        print("\nCF陪练官:", messagesob[-1].content)
         if len(messages)>MAX_MESSAGES+5:
             messages=context_compress(messages,client)
     else:
         if messagesob is None:
-            messagesob=[{"role":"system","content":promptbo}]
+            messagesob=[SystemMessage(promptbo),
+                        HumanMessage("我准备好了，开始吧")]
             result=graph.invoke({"messages":messagesob})
             messagesob=result["messages"]
+            print("\nCF陪练官:", messagesob[-1].content)
         user_input=Input("User: ")
         if user_input=="quit":
             break
-        messagesob.append({"role":"user","content":user_input})
+        messagesob.append(HumanMessage(user_input))
         result=graph.invoke({"messages":messagesob})
         messagesob=result["messages"]
+        print("\nCF陪练官:", messagesob[-1].content)
         if len(messagesob)>MAX_MESSAGES+5:
             messagesob=context_compress(messagesob,client)
         
