@@ -10,6 +10,7 @@ import re
 import time
 import aiohttp
 import asyncio
+import json
 
 
 
@@ -67,6 +68,28 @@ _VERDICT_MAP: Dict[str, str] = {
 
 _PENDING = {"TESTING", "IN_QUEUE"}
 
+class CloudflareBlockError(RuntimeError):
+    """cf_clearance 失效导致 Cloudflare 拦截。"""
+    pass
+
+def _check_cloudflare(text: str, status_code: int, context: str = "") -> None:
+    """检测 cf_clearance 失效：403 或 Cloudflare 挑战页面。"""
+    if status_code == 403:
+        raise CloudflareBlockError(
+            f"cf_clearance 已失效（CF 返回 403 Forbidden）{context}，"
+            "请从浏览器重新获取 cf_clearance cookie 并更新 .env 文件"
+        )
+    for marker, desc in [
+        ("cf-challenge", "Cloudflare 挑战页面"),
+        ("_cf_chl_opt", "Cloudflare 挑战参数"),
+        ("Checking your browser", "浏览器检查页面"),
+    ]:
+        if marker in text:
+            raise CloudflareBlockError(
+                f"cf_clearance 已失效（检测到 {desc}）{context}，"
+                "请从浏览器重新获取 cf_clearance cookie 并更新 .env 文件"
+            )
+
 def get_tag(alg:str)->str:
     return ALG_TAG_MAP.get(alg.strip().lower(),alg.strip().lower())
 
@@ -76,12 +99,17 @@ def _fetch_problem(tag:str,lo:int,hi:int,n:int)->list[dict]:
             "HTTP_PROXY":os.getenv("HTTP_PROXY"),
             "HTTPS_PROXY":os.getenv("HTTPS_PROXY")
         }
-        res=requests.get(
+        resp=requests.get(
             "https://codeforces.com/api/problemset.problems",
             params={"tags":tag},
             proxies=proxies,
             timeout=15
-        ).json()
+        )
+        text=resp.text
+        _check_cloudflare(text, resp.status_code)
+        res=resp.json()
+    except RuntimeError:
+        raise
     except Exception as e:
         return [{"error":f"网络请求失败{e}"}]
     if res.get("status")!="OK":
@@ -187,11 +215,12 @@ def get_cookie()->aiohttp.ClientSession:
 async def get_crsf(session:aiohttp.ClientSession,url:str)->str:
     timeout=aiohttp.ClientTimeout(total=15)
     async with session.get(url,timeout=timeout) as resp:
-        resp.raise_for_status()
         text=await resp.text()
+        _check_cloudflare(text, resp.status, f"（获取 CSRF token: {url}）")
+        resp.raise_for_status()
     m=re.search(r'<meta\s+name="X-Csrf-Token"\s+content="([^"]+)"',text)
     if not m:
-        raise ValueError("无法获取csrf，请检查cookie是否有效")
+        raise ValueError("无法获取csrf，请检查cookie是否有效（cf_clearance 或其他 cookie 可能已过期）")
     return m.group(1)
 
 async def _is_contest_running(contest_id) -> bool:
@@ -202,14 +231,20 @@ async def _is_contest_running(contest_id) -> bool:
                 params={"gym": False},
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as resp:
-                data = await resp.json()
+                text = await resp.text()
+                _check_cloudflare(text, resp.status)
+                resp.raise_for_status()
+                data = json.loads(text)
         if data.get("status") != "OK":
             return False
         for c in data["result"]:
             if c["id"] == int(contest_id):
                 return c.get("phase") == "CODING"
         return False
-    except Exception:
+    except RuntimeError:
+        raise
+    except Exception as e:
+        print(f"  ⚠ 检查比赛状态失败：{e}")
         return False
 
 async def _submit(session:aiohttp.ClientSession,source_code:str,contest_id:int,problem_index:str,lang:str)->None:
@@ -244,8 +279,9 @@ async def _submit(session:aiohttp.ClientSession,source_code:str,contest_id:int,p
         timeout=20,
         allow_redirects=True
     ) as resp:
-        resp.raise_for_status()
         text=await resp.text()
+        _check_cloudflare(text, resp.status)
+        resp.raise_for_status()
         url=str(resp.url)
         status_code=resp.status
     if "submitSolutionFormSubmit" in url or status_code !=200:
@@ -266,8 +302,10 @@ async def _least_submissionId(session:aiohttp.ClientSession,contest_id:int,probl
         params={"contestId":contest_id,"handle":handle,"from":1,"count":50},
         timeout=15
     ) as resp:
+        text = await resp.text()
+        _check_cloudflare(text, resp.status)
         resp.raise_for_status()
-        data=await resp.json()
+        data = json.loads(text)
     if data.get("status") !="OK":
         raise RuntimeError(f"获取列表失败，{data.get('comment','未知')}")
     target_Index=problem_id.upper()
@@ -293,8 +331,12 @@ async def _poll_verdict(session:aiohttp.ClientSession,submission_id:int,contest_
                 params={"contestId":contest_id,"handle":handle,"from":1,"count":50},
                 timeout=15
             ) as resp:
+                text = await resp.text()
+                _check_cloudflare(text, resp.status)
                 resp.raise_for_status()
-                data=await resp.json()
+                data = json.loads(text)
+        except RuntimeError:
+            raise
         except Exception as e:
             raise RuntimeError(f"轮询结果时网络异常{e}")
         if data.get("status") !="OK":
@@ -341,6 +383,8 @@ async def _submit_and_get_result(contest_id:str,problem_index:str,lang:str,sourc
                 submission =await _least_submissionId(session, contest_id, problem_index)
                 print(f"  ✅ 提交成功，submission ID = {submission}（无需在 CF 上重复提交）")
                 break
+            except CloudflareBlockError:
+                raise
             except RuntimeError:
                 print(f"  ⏳ 等待提交入库… ({_+1}/6)")
         if submission==None:
