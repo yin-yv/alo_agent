@@ -498,6 +498,17 @@ def check_onboarding()->str|None:
  
 现在开始摸底，用中文与用户交流。先用一句话介绍摸底目的，然后从第一个算法出题。"""
 
+@tool(description="获取题目的提交次数")
+def get_attempt_count(contextId:int|str,index:str)->int:
+    data=_read_md(_pro_path(contextId,index))
+    return data["attempt_count"]
+
+def updata_attempt_count(contexId:int|str,index:str):
+    path=_pro_path(contexId,index)
+    data=_read_md(path)
+    data["attempt_count"]=data.get("attempt_count",0)+1
+    _write_md(path,data)
+
 @tool(description="完成初始化引导流程")
 def finish_onboarding(mastered:list[str],learn:list[str],not_started:list[str],current_alg:str,next_alg:list[str]):
     _ensure_dirs()

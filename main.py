@@ -2,7 +2,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from tool import get_problem,submit_and_get_result,analysis_code
 from knowledge import (
-    init_vault,finish_onboarding,build_prompt,check_onboarding
+    init_vault,finish_onboarding,build_prompt,check_onboarding,updata_learning_path,get_attempt_count
 )
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import ToolMessage
@@ -16,7 +16,7 @@ MAX_MESSAGES=20
 load_dotenv()
 
 model=init_chat_model(model="deepseek-chat")
-tools=[finish_onboarding,analysis_code,submit_and_get_result,get_problem]
+tools=[finish_onboarding,analysis_code,submit_and_get_result,get_problem,updata_learning_path,get_problem]
 model_with_tools=model.bind_tools(tools)
 
 def agent_node(state):
@@ -58,7 +58,7 @@ graph=builder.compile()
 
 def context_compress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
-    others=[m for m in messages if m["role"]!="system"]
+    others=[m for m in messages if m["role"] in ("assistant","user")]
     if not others:
         return messages
     last=others[-1]
@@ -66,7 +66,16 @@ def context_compress(messages,client):
     body=others[:-1] if panding else others
     if not body:
         return messages
-    history="\n".join([f"{m['role']}:{m.get('content') or '[工具调用]'}" for m in others])
+    history=[]
+    for msg in others:
+        role=msg["role"]
+        if role=="tool":
+            continue
+        if role=="assistant" and msg.get("tool_calls"):
+            continue
+        if msg.get("content"):
+            continue
+        history.append(msg)
     resp=client.chat.completions.create(
         model="deepseek-chat",
         messages=[
