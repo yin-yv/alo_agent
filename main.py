@@ -189,7 +189,7 @@ tools=[
                 "type":"object",
                 "properties":{
                     "contextId":{
-                        "type":"string"|"int",
+                        "type":"string",
                         "description":"题目ID编号"
                     },
                     "index":{
@@ -264,8 +264,8 @@ def run_agent(message,client):
         else:
             print(f"[警告] 未知的 finish_reason: {resp.choices[0].finish_reason}")
             break
-        if len(messages)>MAX_MESSAGES+5:
-            messages=context_cpmress(messages,client)
+        if len(message)>MAX_MESSAGES+5:
+            message=context_cpmress(message,client)
             
 def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
