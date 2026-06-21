@@ -200,27 +200,6 @@ tools=[
                 "required":["contextId","index"]
             }
         }
-    },
-    {
-        "type":"function",
-        "function":{
-            "name":"updata_attempt_count",
-            "description":"更新题目的尝试次数",
-            "parameter":{
-                "type":"object",
-                "properties":{
-                    "contextId":{
-                        "type":"string"|"int",
-                        "description":"题目ID编号"
-                    },
-                    "index":{
-                        "type":"string",
-                        "description":"题目索引"
-                    }
-                },
-                "required":["contextId","index"]
-            }
-        }
     }
 ]
 
@@ -237,8 +216,6 @@ def call_tools(name,msg):
         return finish_onboarding(**msg)
     elif name=="get_attempt_count":
         return get_attempt_count(**msg)
-    elif name=="updta_attempt_count":
-        return updata_attempt_count(**msg)
     else:
         return f"未知工具{name}"
 
