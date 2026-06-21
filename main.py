@@ -16,7 +16,7 @@ MAX_MESSAGES=20
 load_dotenv()
 
 model=init_chat_model(model="deepseek-chat")
-tools=[finish_onboarding,analysis_code,submit_and_get_result,get_problem,updata_learning_path,get_problem]
+tools=[finish_onboarding,analysis_code,submit_and_get_result,get_problem,updata_learning_path,get_attempt_count]
 model_with_tools=model.bind_tools(tools)
 
 def agent_node(state):
@@ -27,7 +27,9 @@ tool_map={
         "finish_onboarding":finish_onboarding,
         "analysis_code":analysis_code,
         "submit_and_get_result":submit_and_get_result,
-        "get_problem":get_problem
+        "get_problem":get_problem,
+        "updata_learning_path":updata_learning_path,
+        "get_attempt_count":get_attempt_count
 }
 
 def tool_node(state):
@@ -38,8 +40,8 @@ def tool_node(state):
         output.append(
             ToolMessage(
                 content=json.dumps(result,ensure_ascii=False),
-                tool_id=tc["id"],
-                tool_name=tc["name"]
+                tool_call_id=tc["id"],
+                name=tc["name"]
             )
         )
     return {"messages":output}
@@ -50,10 +52,10 @@ def should_continue(state):
 
 builder=StateGraph(MessagesState)
 builder.add_node("agent",agent_node)
-builder.add_node("tool",tool_node)
+builder.add_node("tools",tool_node)
 builder.add_edge(START,"agent")
 builder.add_conditional_edges("agent",should_continue)
-builder.add_edge("tool","agent")
+builder.add_edge("tools","agent")
 graph=builder.compile()
 
 def context_compress(messages,client):
@@ -268,12 +270,14 @@ while True:
     else:
         if messagesob is None:
             messagesob=[{"role":"system","content":promptbo}]
-        result=graph.invoke({"messages":messagesob})
-        messagesob=result["messages"]
+            result=graph.invoke({"messages":messagesob})
+            messagesob=result["messages"]
         user_input=Input("User: ")
         if user_input=="quit":
             break
         messagesob.append({"role":"user","content":user_input})
+        result=graph.invoke({"messages":messagesob})
+        messagesob=result["messages"]
         if len(messagesob)>MAX_MESSAGES+5:
             messagesob=context_compress(messagesob,client)
         
