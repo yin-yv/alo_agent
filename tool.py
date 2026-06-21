@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from langchain.agents import create_agent
 from langchain.messages import HumanMessage
-from knowledge import (can_submit,MAX_ATTEMPT)
+from knowledge import (can_submit,MAX_ATTEMPT,updata_attempt_count)
 import os
 import requests
 import random
@@ -277,6 +277,7 @@ def _submit(session:requests.Session,source_code:str,contest_id:int,problem_inde
     resp.raise_for_status()
     url=resp.url
     status_code=resp.status_code
+    updata_attempt_count(contest_id,problem_index)
     if "submitSolutionFormSubmit" in url or status_code !=200:
         err_m=re.search(r'error[^>]*>([^<]{5,200})', text, re.I)
         hint=err_m.group(1).strip() if err_m else "位置错误，请确认cookie未到期"

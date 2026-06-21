@@ -4,7 +4,7 @@ from tool import get_problem,submit_and_get_result,analysis_code
 import os
 import json
 from knowledge import (
-    init_vault, updata_learning_path,finish_onboarding,build_prompt,check_onboarding
+    init_vault, updata_learning_path,finish_onboarding,build_prompt,check_onboarding,get_attempt_count,updata_attempt_count
 )
 init_vault()
 
@@ -179,6 +179,48 @@ tools=[
                 "required":["mastered","learn","not_started","current_alg","next_alg"]
             }
         }
+    },
+    {
+        "type":"function",
+        "function":{
+            "name":"get_attempt_count",
+            "description":"得到同一个题目的尝试次数",
+            "parameters":{
+                "type":"object",
+                "properties":{
+                    "contextId":{
+                        "type":"string"|"int",
+                        "description":"题目ID编号"
+                    },
+                    "index":{
+                        "type":"string",
+                        "description":"题目索引"
+                    }
+                },
+                "required":["contextId","index"]
+            }
+        }
+    },
+    {
+        "type":"function",
+        "function":{
+            "name":"updata_attempt_count",
+            "description":"更新题目的尝试次数",
+            "parameter":{
+                "type":"object",
+                "properties":{
+                    "contextId":{
+                        "type":"string"|"int",
+                        "description":"题目ID编号"
+                    },
+                    "index":{
+                        "type":"string",
+                        "description":"题目索引"
+                    }
+                },
+                "required":["contextId","index"]
+            }
+        }
     }
 ]
 
@@ -193,6 +235,10 @@ def call_tools(name,msg):
         return updata_learning_path(**msg)
     elif name=="finish_onboarding":
         return finish_onboarding(**msg)
+    elif name=="get_attempt_count":
+        return get_attempt_count(**msg)
+    elif name=="updta_attempt_count":
+        return updata_attempt_count(**msg)
     else:
         return f"未知工具{name}"
 
@@ -241,10 +287,12 @@ def run_agent(message,client):
         else:
             print(f"[警告] 未知的 finish_reason: {resp.choices[0].finish_reason}")
             break
+        if len(messages)>MAX_MESSAGES+5:
+            messages=context_cpmress(messages,client)
             
 def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
-    others=[m for m in messages if m["role"]!="system"]
+    others=[m for m in messages if m["role"] in ("assitant","user")]
     if not others:
         return messages
     last=others[-1]
@@ -252,7 +300,16 @@ def context_cpmress(messages,client):
     body=others[:-1] if panding else others
     if not body:
         return messages
-    history="\n".join([f"{m['role']}:{m.get('content') or '[工具调用]'}" for m in others])
+    history=[]
+    for msg in others:
+        role=msg["role"]
+        if role=="tool":
+            continue
+        if role=="assistant" and msg.get("tool_calls"):
+            continue
+        if msg.get("content"):
+            continue
+        history.append(msg)
     resp=client.chat.completions.create(
         model="deepseek-chat",
         messages=[

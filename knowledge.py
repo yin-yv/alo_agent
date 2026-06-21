@@ -516,6 +516,16 @@ def finish_onboarding(mastered:list[str],learn:list[str],not_started:list[str],c
         "next_alg":next_alg
     }
 
+def get_attempt_count(contestId:int|str,index:str)->int:
+    data=_read_md(_pro_path(contestId,index))
+    return data["attempt_count"]
+
+def updata_attempt_count(contestId:int|str,index:str):
+    path=_pro_path(contestId,index)
+    data=_read_md(path)
+    attempt_count=data.get("attempt_count",0)+1
+    data["attempt_count"]=attempt_count
+    _write_md(path=path,data=data)
 
 def build_prompt()->str:
     profile=get_user()
