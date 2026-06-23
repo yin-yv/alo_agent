@@ -15,6 +15,8 @@ Vault 目录结构：
       ...
 """
 import re
+import aiofiles
+import asyncio
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -83,7 +85,7 @@ def _read_md(path:Path)->dict:
             data[key]=raw
     return data
 
-def _write_md(path:Path,data:dict,body:str=""):
+async def _write_md(path:Path,data:dict,body:str=""):
     lines=["---"]
     for k,v in data.items():
         if isinstance(v,list):
@@ -97,7 +99,9 @@ def _write_md(path:Path,data:dict,body:str=""):
     if body:
         lines.append("")
         lines.append(body)
-    path.write_text("\n".join(lines)+"\n",encoding="utf-8")
+    content="\n".join(lines)
+    async with aiofiles.open(path,mode="w",encoding="utf-8") as f:
+        await f.write(content)
 
 def _alg_path(alg_tag:str)->Path:
     name=alg_tag.strip().lower().replace(" ","-")
