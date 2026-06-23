@@ -114,7 +114,7 @@ def init_vault():
     _ensure_dirs()
     profile_path=VAULT/"user_profile.md"
     if not profile_path.exists():
-        _write_md(
+        asyncio.run(_write_md(
             profile_path,{
                 "onboarding_done":"false",
                 "mastered":[],
@@ -122,14 +122,14 @@ def init_vault():
                 "not_started":[]
                 },
             body="#用户学习档案\n\n在此记录学习过程"
-            )
+            ))
     lp=VAULT/"learning_path.md"
     if not lp.exists():
-        _write_md(lp,{
+        asyncio.run(_write_md(lp,{
             "prerequisites":[],
             "current_alg":"",
             "next_alg":[]
-        },body="当前的学习路径")
+        },body="当前的学习路径"))
         
 def get_user():
     return _read_md(VAULT/"user_profile.md")
@@ -138,7 +138,7 @@ def set_boarding():
     p=VAULT/"user_profile.md"
     data=_read_md(p)
     data["onboarding_done"]="true"
-    _write_md(p,data)
+    asyncio.run(_write_md(p,data))
 
 def get_master_alg()->list[str]:
     return get_user().get("mastered",[])
@@ -204,7 +204,7 @@ def updata_alg_status(
     if notes is not None:
         data["notes"]=notes
     data["last_practiced"]=str(date.today())
-    _write_md(path,data)
+    asyncio.run(_write_md(path,data))
     _sync_profile(alg_tag,data["status"])
 
 def _sync_profile(alg_tag:str,new_status:str):
@@ -228,7 +228,7 @@ def _sync_profile(alg_tag:str,new_status:str):
     if alg_tag not in lst:
         lst.append(alg_tag)
     data[target_key]=lst
-    _write_md(p,data)
+    asyncio.run(_write_md(p,data))
 
 def get_problem_record(contest_id:int|str,index:str):
     data=_read_md(_pro_path(contest_id,index))
@@ -298,7 +298,7 @@ def _do_unlock(contest_id:int|str,index:str):
     history.append(f"UNLOCK_COUNT #{data['unlock_count']}")
     data["history"]=history
     data["last_updated"]=str(date.today())
-    _write_md(path,data)
+    asyncio.run(_write_md(path,data))
 
 def check():
     if not PRO.exists():
@@ -352,7 +352,7 @@ def record_submission(
     data["verdict_history"]=history
     data["status"]=verdict
     data["last_updated"]=str(date.today())
-    _write_md(path,data)
+    asyncio.run(_write_md(path,data))
     if verdict=="AC" and alg_tag:
         _on_ac(alg_tag)
         check()
@@ -362,7 +362,7 @@ def _on_ac(alg_tag:str):
     data=_read_md(_alg_path(alg_tag))
     if data:
         data["last_practiced"]=str(date.today())
-        _write_md(_alg_path(alg_tag),data)
+        asyncio.run(_write_md(_alg_path(alg_tag),data))
 
 def get_attempt_count(contestId:int|str,index:str):
     return get_problem_record(contestId,index).get("attempt_count",0)
@@ -371,10 +371,10 @@ def get_learn_path():
     return _read_md(VAULT/"learning_path.md")
 
 def updata_learning_path(current_alg:str,next_alg:list[str]):
-    _write_md(VAULT/"learning_path.md",{
+    asyncio.run(_write_md(VAULT/"learning_path.md",{
         "current_alg":current_alg,
         "next_alg":next_alg
-    })
+    }))
 
 def check_onboarding()->str|None:
     profile=get_user()
@@ -511,7 +511,7 @@ def updata_attempt_count(contexId:int|str,index:str):
     path=_pro_path(contexId,index)
     data=_read_md(path)
     data["attempt_count"]=data.get("attempt_count",0)+1
-    _write_md(path,data)
+    asyncio.run(_write_md(path,data))
 
 @tool(description="完成初始化引导流程")
 def finish_onboarding(mastered:list[str],learn:list[str],not_started:list[str],current_alg:str,next_alg:list[str]):
