@@ -465,24 +465,25 @@ messages=[
 
 messagesob=None
 
-while True:
-    promptbo=check_onboarding()
-    if promptbo is None:
-        user_input=Input("User: ")
-        if user_input=="quit":
-            break
-        messages.append({"role":"user","content":user_input})
-        run_agent(messages,client)
-        if len(messages)>MAX_MESSAGES+5:
-            messages=context_cpmress(messages,client)
-    else:
-        if messagesob is None:
-            messagesob=[{"role":"system","content":promptbo}]
-        run_agent(messagesob,client)
-        user_input=Input("User: ")
-        if user_input=="quit":
-            break
-        messagesob.append({"role":"user","content":user_input})
-        if len(messagesob)>MAX_MESSAGES+5:
-            messagesob=context_cpmress(messagesob,client)
+if __name__=="__main__":
+    while True:
+        promptbo=check_onboarding()
+        if promptbo is None:
+            user_input=Input("User: ")
+            if user_input=="quit":
+                break
+            messages.append({"role":"user","content":user_input})
+            run_agent(messages,client)
+            if len(messages)>MAX_MESSAGES+5:
+                messages=context_cpmress(messages,client)
+        else:
+            if messagesob is None:
+                messagesob=[{"role":"system","content":promptbo}]
+            run_agent(messagesob,client)
+            user_input=Input("User: ")
+            if user_input=="quit":
+                break
+            messagesob.append({"role":"user","content":user_input})
+            if len(messagesob)>MAX_MESSAGES+5:
+                messagesob=context_cpmress(messagesob,client)
         
