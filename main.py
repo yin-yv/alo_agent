@@ -269,7 +269,7 @@ def run_agent(message,client):
             
 def context_cpmress(messages,client):
     system=[m for m in messages if m["role"]=="system"]
-    others=[m for m in messages if m["role"] in ("assitant","user")]
+    others=[m for m in messages if m["role"] in ("assistant","user")]
     if not others:
         return messages
     last=others[-1]
@@ -284,7 +284,7 @@ def context_cpmress(messages,client):
             continue
         if role=="assistant" and msg.get("tool_calls"):
             continue
-        if msg.get("content"):
+        if not msg.get("content"):
             continue
         history.append(msg)
     resp=client.chat.completions.create(
