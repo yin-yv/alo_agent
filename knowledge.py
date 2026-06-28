@@ -364,7 +364,8 @@ def _on_ac(alg_tag:str):
         data["last_practiced"]=str(date.today())
         asyncio.run(_write_md(_alg_path(alg_tag),data))
 
-def get_attempt_count(contestId:int|str,index:str):
+@tool(description="获取题目的提交次数")
+def get_attempt_count(contestId:int|str,index:str)->int:
     return get_problem_record(contestId,index).get("attempt_count",0)
 
 def get_learn_path():
@@ -501,11 +502,6 @@ def check_onboarding()->str|None:
 ---
  
 现在开始摸底，用中文与用户交流。先用一句话介绍摸底目的，然后从第一个算法出题。"""
-
-@tool(description="获取题目的提交次数")
-def get_attempt_count(contextId:int|str,index:str)->int:
-    data=_read_md(_pro_path(contextId,index))
-    return data["attempt_count"]
 
 def updata_attempt_count(contexId:int|str,index:str):
     path=_pro_path(contexId,index)
