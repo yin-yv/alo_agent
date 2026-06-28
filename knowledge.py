@@ -225,7 +225,7 @@ def _sync_profile(alg_tag:str,new_status:str):
     data[target_key]=lst
     _write_md(p,data)
 
-def get_problem_record(contest_id:int|str,index:str):
+def get_problem_record(contest_id:int|str,index:str)->dict:
     data=_read_md(_pro_path(contest_id,index))
     if not data:
         return {
@@ -359,7 +359,7 @@ def _on_ac(alg_tag:str):
         data["last_practiced"]=str(date.today())
         _write_md(_alg_path(alg_tag),data)
 
-def get_attempt_count(contestId:int|str,index:str):
+def get_attempt_count(contestId:int|str,index:str)->int:
     return get_problem_record(contestId,index).get("attempt_count",0)
 
 def get_learn_path():
@@ -515,10 +515,6 @@ def finish_onboarding(mastered:list[str],learn:list[str],not_started:list[str],c
         "current_alg":current_alg,
         "next_alg":next_alg
     }
-
-def get_attempt_count(contestId:int|str,index:str)->int:
-    data=_read_md(_pro_path(contestId,index))
-    return data["attempt_count"]
 
 def updata_attempt_count(contestId:int|str,index:str):
     path=_pro_path(contestId,index)
