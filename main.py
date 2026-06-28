@@ -75,7 +75,7 @@ def context_compress(messages,client):
             continue
         if role=="assistant" and msg.get("tool_calls"):
             continue
-        if msg.get("content"):
+        if not msg.get("content"):
             continue
         history.append(msg)
     resp=client.chat.completions.create(
