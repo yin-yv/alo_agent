@@ -69,7 +69,7 @@ def context_compress(messages,client):
     if not body:
         return messages
     history=[]
-    for msg in others:
+    for msg in body:
         role=msg["role"]
         if role=="tool":
             continue
